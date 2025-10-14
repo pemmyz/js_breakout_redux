@@ -38,20 +38,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const COLOR_BLUE = 'blue';
 
     // Default speeds
-    const DEFAULT_BALL_SPEED = 7.0; // This is now a "speed unit", not pixels/frame
+    const DEFAULT_BALL_SPEED = 7.0;
     const MAX_BALL_SPEED = 50.0;
     const DEFAULT_PADDLE_SPEED = 9;
     const PADDLE_SPEED_RATIO = DEFAULT_PADDLE_SPEED / DEFAULT_BALL_SPEED;
 
-    // Game Objects (Render Info)
+    // Game Objects
     let paddle = { width: 100, height: 10, speed: DEFAULT_PADDLE_SPEED };
     let ball = { radius: 10, speed: DEFAULT_BALL_SPEED };
-    let bricks = []; // Will store rendering info
+    let bricks = [];
 
     // Physics Objects
     let world;
     let ballBody, paddleBody;
-    let brickBodies = [];
     let bodiesToDestroy = [];
 
     // Game state variables
@@ -60,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let running = true;
     let animationFrameId;
     let paddleMoveDirectionTouch = 0;
+    let mouseTargetX = null;
 
     // Countdown variables
     let countdownActive = false;
@@ -102,18 +102,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (autoFollowMode) {
             paddleMoveDirectionTouch = 0;
+            mouseTargetX = null;
             if (paddleBody) paddleBody.setLinearVelocity(Vec2(0, 0));
         } else {
             initialAutoSpeedRampActive = false;
-            console.log("Player took control: Initial auto speed ramp disabled.");
         }
-
         if (showInitialAutomodeMessage) {
             showInitialAutomodeMessage = false;
-            if (initialMessageTimeoutId) {
-                clearTimeout(initialMessageTimeoutId);
-                initialMessageTimeoutId = null;
-            }
+            if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId);
         }
         manageAutoSpeedIncrease();
     }
@@ -134,10 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const minVerticalRatio = 0.15;
         if (Math.abs(vel.y / speed) < minVerticalRatio) {
             vel.y = (vel.y >= 0 ? 1 : -1) * speed * minVerticalRatio;
-            
             let newVelX = Math.sqrt(Math.max(0, speed * speed - vel.y * vel.y));
             vel.x = (vel.x >= 0 ? 1 : -1) * newVelX;
-            
             ballBody.setLinearVelocity(vel);
         }
     }
@@ -191,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.font = '20px Arial';
             ctx.fillStyle = 'yellow';
             ctx.textAlign = 'center';
-            ctx.fillText("Automode enabled. Click screen to take control.", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 100);
+            ctx.fillText("Automode enabled. Click screen or move mouse to take control.", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 100);
         }
     }
 
@@ -208,129 +202,119 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- GAME LOGIC ---
     function resetGame(keepScore = false, retainSpeed = null) {
-        // Clear timers
         if (countdownIntervalId) clearInterval(countdownIntervalId);
         if (new_game_timeout_id) clearTimeout(new_game_timeout_id);
         countdownIntervalId = null;
         new_game_timeout_id = null;
         countdownActive = false;
 
-        // Reset Physics World
         world = pl.World({ gravity: Vec2(0, 0) });
-        brickBodies = [];
         bodiesToDestroy = [];
 
-        // Create Walls
-        const wallThickness = pxToM(10);
-        const walls = [
-            { x: pxToM(SCREEN_WIDTH / 2), y: -wallThickness, w: pxToM(SCREEN_WIDTH), h: wallThickness }, // Top
-            { x: -wallThickness, y: pxToM(SCREEN_HEIGHT / 2), w: wallThickness, h: pxToM(SCREEN_HEIGHT) }, // Left
-            { x: pxToM(SCREEN_WIDTH) + wallThickness, y: pxToM(SCREEN_HEIGHT / 2), w: wallThickness, h: pxToM(SCREEN_HEIGHT) }, // Right
+        // --- MODIFIED: Added a 'side' property for identifying walls ---
+        const wallThicknessM = pxToM(10);
+        const screenWidthM = pxToM(SCREEN_WIDTH);
+        const screenHeightM = pxToM(SCREEN_HEIGHT);
+
+        const wallDefs = [
+            { pos: Vec2(screenWidthM / 2, -wallThicknessM / 2), w: screenWidthM, h: wallThicknessM, side: 'top' },
+            { pos: Vec2(-wallThicknessM / 2, screenHeightM / 2), w: wallThicknessM, h: screenHeightM, side: 'left' },
+            { pos: Vec2(screenWidthM + wallThicknessM / 2, screenHeightM / 2), w: wallThicknessM, h: screenHeightM, side: 'right' },
         ];
-        walls.forEach(wall => {
-            const ground = world.createBody({ type: 'static', position: Vec2(wall.x, wall.y) });
-            ground.createFixture(pl.Box(wall.w / 2, wall.h / 2), {restitution: 1.0, friction: 0.0});
+
+        wallDefs.forEach(def => {
+            const wallBody = world.createBody({ type: 'static', position: def.pos });
+            const fixture = wallBody.createFixture(pl.Box(def.w / 2, def.h / 2), { restitution: 1.0, friction: 0.0 });
+            // --- NEW: Tagging the wall fixture with its side ---
+            fixture.setUserData({ type: 'wall', side: def.side });
         });
 
-        // Create Paddle
-        paddleBody = world.createBody({
-            type: 'kinematic',
-            position: Vec2(pxToM(SCREEN_WIDTH / 2), pxToM(SCREEN_HEIGHT - 50)),
-        });
-        const paddleFixture = paddleBody.createFixture(pl.Box(pxToM(paddle.width / 2), pxToM(paddle.height / 2)), {});
-        paddleFixture.setUserData({ type: 'paddle' });
+        // Create Paddle, Ball, Bricks...
+        paddleBody = world.createBody({ type: 'kinematic', position: Vec2(pxToM(SCREEN_WIDTH / 2), pxToM(SCREEN_HEIGHT - 50)) });
+        paddleBody.createFixture(pl.Box(pxToM(paddle.width / 2), pxToM(paddle.height / 2)), {}).setUserData({ type: 'paddle' });
         
-        // Create Ball
-        ballBody = world.createBody({
-            type: 'dynamic',
-            position: Vec2(pxToM(SCREEN_WIDTH / 2), pxToM(SCREEN_HEIGHT / 2)),
-            bullet: true // Prevents tunneling at high speeds
-        });
-        const ballFixture = ballBody.createFixture(pl.Circle(pxToM(ball.radius)), {
-            density: 1.0,
-            restitution: 1.0, // Perfect bounce
-            friction: 0.0
-        });
-        ballFixture.setUserData({ type: 'ball' });
+        ballBody = world.createBody({ type: 'dynamic', position: Vec2(pxToM(SCREEN_WIDTH / 2), pxToM(SCREEN_HEIGHT / 2)), bullet: true });
+        ballBody.createFixture(pl.Circle(pxToM(ball.radius)), { density: 1.0, restitution: 1.0, friction: 0.0 }).setUserData({ type: 'ball' });
 
-        // Set Ball Speed and Initial Velocity
         updateBallSpeed(retainSpeed !== null ? retainSpeed : DEFAULT_BALL_SPEED);
         let initialAngle = (Math.random() * 60 + 240) * Math.PI / 180;
         if (Math.random() < 0.5) initialAngle = (Math.random() * 60 + 30) * Math.PI / 180;
-        const initialVelocity = Vec2(ball.speed * Math.cos(initialAngle), ball.speed * Math.sin(initialAngle));
-        ballBody.setLinearVelocity(initialVelocity);
+        ballBody.setLinearVelocity(Vec2(ball.speed * Math.cos(initialAngle), ball.speed * Math.sin(initialAngle)));
 
-        // Create Bricks
         bricks = [];
         for (let r = 0; r < BRICK_ROWS; r++) {
             for (let c = 0; c < BRICK_COLS; c++) {
                 const brickX = c * (BRICK_WIDTH + BRICK_PADDING) + BRICK_OFFSET_LEFT;
                 const brickY = r * (BRICK_HEIGHT + BRICK_PADDING) + BRICK_OFFSET_TOP;
-                const brickBody = world.createBody({
-                    type: 'static',
-                    position: Vec2(pxToM(brickX + BRICK_WIDTH / 2), pxToM(brickY + BRICK_HEIGHT / 2))
-                });
-                const brickFixture = brickBody.createFixture(pl.Box(pxToM(BRICK_WIDTH / 2), pxToM(BRICK_HEIGHT / 2)), {});
-                
+                const brickBody = world.createBody({ type: 'static', position: Vec2(pxToM(brickX + BRICK_WIDTH / 2), pxToM(brickY + BRICK_HEIGHT / 2)) });
                 const brickRenderInfo = { x: brickX, y: brickY, status: 1, body: brickBody };
-                brickFixture.setUserData({ type: 'brick', renderInfo: brickRenderInfo });
+                brickBody.createFixture(pl.Box(pxToM(BRICK_WIDTH / 2), pxToM(BRICK_HEIGHT / 2)), {}).setUserData({ type: 'brick', renderInfo: brickRenderInfo });
                 bricks.push(brickRenderInfo);
-                brickBodies.push(brickBody);
             }
         }
         
-        // Setup Collision Listener
+        // Setup Collision Listeners
         world.on('pre-solve', (contact) => {
-            const fixtureA = contact.getFixtureA();
-            const fixtureB = contact.getFixtureB();
-            const dataA = fixtureA.getUserData();
-            const dataB = fixtureB.getUserData();
-
-            const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null);
-            const paddleData = dataA.type === 'paddle' ? dataA : (dataB.type === 'paddle' ? dataB : null);
-
-            if (ballData && paddleData) {
-                // Custom paddle bounce logic
-                contact.setEnabled(false); // Disable default physics response
-                
+            const dataA = (contact.getFixtureA().getUserData() || {});
+            const dataB = (contact.getFixtureB().getUserData() || {});
+            if ((dataA.type === 'ball' && dataB.type === 'paddle') || (dataA.type === 'paddle' && dataB.type === 'ball')) {
+                contact.setEnabled(false);
                 const ballPos = ballBody.getPosition();
                 const paddlePos = paddleBody.getPosition();
-                const paddleWidthM = pxToM(paddle.width);
-
-                let relativeIntersectX = (ballPos.x - paddlePos.x) / (paddleWidthM / 2);
+                let relativeIntersectX = (ballPos.x - paddlePos.x) / (pxToM(paddle.width) / 2);
                 relativeIntersectX = Math.max(-1, Math.min(1, relativeIntersectX));
-
-                const maxAngle = 75; // Angle in degrees from vertical
-                const angle = (relativeIntersectX * maxAngle) * (Math.PI / 180);
-
-                const newVel = Vec2(ball.speed * Math.sin(angle), -ball.speed * Math.cos(angle));
-                ballBody.setLinearVelocity(newVel);
+                const angle = (relativeIntersectX * 75) * (Math.PI / 180);
+                ballBody.setLinearVelocity(Vec2(ball.speed * Math.sin(angle), -ball.speed * Math.cos(angle)));
             }
         });
 
         world.on('begin-contact', (contact) => {
-            const fixtureA = contact.getFixtureA();
-            const fixtureB = contact.getFixtureB();
-            const dataA = fixtureA.getUserData();
-            const dataB = fixtureB.getUserData();
-            
+            const dataA = (contact.getFixtureA().getUserData() || {});
+            const dataB = (contact.getFixtureB().getUserData() || {});
             const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null);
             const brickData = dataA.type === 'brick' ? dataA : (dataB.type === 'brick' ? dataB : null);
-            
             if (ballData && brickData && brickData.renderInfo.status === 1) {
                 brickData.renderInfo.status = 0;
                 bodiesToDestroy.push(brickData.renderInfo.body);
                 score += 10;
-
-                // Check for win condition
                 if (bricks.every(b => b.status === 0)) {
                     if (!new_game_timeout_id) {
-                        console.log("All bricks destroyed! New game in 2.5s.");
-                        new_game_timeout_id = setTimeout(() => {
-                            resetGame(true, ball.speed);
-                            new_game_timeout_id = null;
-                        }, 2500);
+                        new_game_timeout_id = setTimeout(() => { resetGame(true, ball.speed); }, 2500);
                     }
+                }
+            }
+        });
+        
+        // --- NEW: Post-Solve Listener to fix wall bounces ---
+        world.on('post-solve', (contact) => {
+            const dataA = contact.getFixtureA().getUserData() || {};
+            const dataB = contact.getFixtureB().getUserData() || {};
+            
+            const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null);
+            const wallData = dataA.type === 'wall' ? dataA : (dataB.type === 'wall' ? dataB : null);
+
+            if (ballData && wallData) {
+                const vel = ballBody.getLinearVelocity();
+                const speed = vel.length();
+                const minComponent = speed * 0.2; // Min velocity component should be 20% of total speed
+
+                let corrected = false;
+                if (wallData.side === 'left' || wallData.side === 'right') {
+                    if (Math.abs(vel.x) < minComponent) {
+                        vel.x = (vel.x > 0 ? 1 : -1) * minComponent;
+                        corrected = true;
+                    }
+                } else if (wallData.side === 'top') {
+                    if (Math.abs(vel.y) < minComponent) {
+                        vel.y = (vel.y > 0 ? 1 : -1) * minComponent;
+                         corrected = true;
+                    }
+                }
+
+                if (corrected) {
+                    vel.normalize();
+                    vel.mul(speed); // Re-apply original speed to the new direction vector
+                    ballBody.setLinearVelocity(vel);
                 }
             }
         });
@@ -342,7 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showInitialAutomodeMessage = true;
             initialAutoSpeedRampActive = true;
             if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId);
-            initialMessageTimeoutId = setTimeout(() => { showInitialAutomodeMessage = false; initialMessageTimeoutId = null; }, 15000);
+            initialMessageTimeoutId = setTimeout(() => { showInitialAutomodeMessage = false; }, 15000);
         } else {
             showInitialAutomodeMessage = false;
             initialAutoSpeedRampActive = false;
@@ -351,6 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (autoFollowStatusElement) autoFollowStatusElement.textContent = `Auto-Follow: ${autoFollowMode ? 'ON' : 'OFF'}`;
         paddleMoveDirectionTouch = 0;
+        mouseTargetX = null;
         running = true;
         manageAutoSpeedIncrease();
         if (!animationFrameId) gameLoop();
@@ -370,20 +355,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
     
     canvas.addEventListener('mousemove', (e) => {
+        if (autoFollowMode) toggleAutoFollow();
         if (!autoFollowMode) {
             const rect = canvas.getBoundingClientRect();
-            let mouseX = e.clientX - rect.left;
-            let targetX = pxToM(mouseX);
-            // Instead of setting position, we set velocity to move towards the target
-            const currentPos = paddleBody.getPosition();
-            const desiredVelX = (targetX - currentPos.x) * 10; // *10 is a factor to make it responsive
-            paddleBody.setLinearVelocity(Vec2(desiredVelX, 0));
+            mouseTargetX = pxToM(e.clientX - rect.left);
         }
     });
+    canvas.addEventListener('mouseleave', () => { if (!autoFollowMode) mouseTargetX = null; });
 
     function handleManualSpeedChange() {
         if (initialAutoSpeedRampActive) {
-            console.log("Manual speed change: Initial auto speed ramp disabled.");
             initialAutoSpeedRampActive = false;
             manageAutoSpeedIncrease();
         }
@@ -421,69 +402,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
         handleGamepadInput();
 
-        // Keyboard Speed Control
         let speedChanged = false;
         if (keysPressed['arrowup']) { updateBallSpeed(Math.min(ball.speed + 0.2, MAX_BALL_SPEED)); speedChanged = true; }
         if (keysPressed['arrowdown']) { updateBallSpeed(Math.max(ball.speed - 0.2, DEFAULT_BALL_SPEED * 0.5)); speedChanged = true; }
         if (speedChanged) handleManualSpeedChange();
 
-        // Paddle Movement
         if (!autoFollowMode) {
-            let moveVelX = 0;
-            const paddleVel = paddle.speed * 1.5; // Scale speed for physics world
+            let desiredVelX = 0;
+            const paddleVel = paddle.speed * 1.5;
 
-             // Gamepad analog/d-pad movement
-            let gpMove = 0;
-            const latestGamepads = navigator.getGamepads();
-            if (latestGamepads) {
-                for (const gp of latestGamepads) {
-                    if (!gp) continue;
-                    if (Math.abs(gp.axes[0]) > GAMEPAD_DEADZONE) { gpMove = gp.axes[0] * paddleVel; break; }
-                    if (gp.buttons[14] && gp.buttons[14].pressed) { gpMove = -paddleVel; break; }
-                    if (gp.buttons[15] && gp.buttons[15].pressed) { gpMove = paddleVel; break; }
+            if (mouseTargetX !== null) {
+                const currentPos = paddleBody.getPosition();
+                desiredVelX = (mouseTargetX - currentPos.x) * 10;
+            } else {
+                let gpAnalogMove = 0;
+                const latestGamepads = navigator.getGamepads();
+                if (latestGamepads) {
+                    for (const gp of latestGamepads) { if (gp && Math.abs(gp.axes[0]) > GAMEPAD_DEADZONE) { gpAnalogMove = gp.axes[0]; break; } }
+                }
+                
+                if (gpAnalogMove !== 0) {
+                    desiredVelX = gpAnalogMove * paddleVel;
+                } else {
+                    let digitalMove = 0;
+                    let gpDPadMove = 0;
+                    if (latestGamepads) {
+                        for (const gp of latestGamepads) {
+                            if (!gp) continue;
+                            if (gp.buttons[14] && gp.buttons[14].pressed) { gpDPadMove = -1; break; }
+                            if (gp.buttons[15] && gp.buttons[15].pressed) { gpDPadMove = 1; break; }
+                        }
+                    }
+                    if (gpDPadMove !== 0) digitalMove = gpDPadMove;
+                    else if (keysPressed['arrowleft']) digitalMove = -1;
+                    else if (keysPressed['arrowright']) digitalMove = 1;
+                    else if (paddleMoveDirectionTouch !== 0) digitalMove = paddleMoveDirectionTouch;
+                    
+                    if (digitalMove !== 0) desiredVelX = digitalMove * paddleVel;
                 }
             }
+            paddleBody.setLinearVelocity(Vec2(desiredVelX, 0));
 
-            if (gpMove !== 0) {
-                moveVelX = gpMove;
-            } else if (keysPressed['arrowleft']) {
-                moveVelX = -paddleVel;
-            } else if (keysPressed['arrowright']) {
-                moveVelX = paddleVel;
-            } else if (paddleMoveDirectionTouch !== 0) {
-                moveVelX = paddleMoveDirectionTouch * paddleVel;
-            }
-            
-            // Mouse movement is handled in its own listener, so we only set velocity if other inputs are used
-            // This prevents keyboard/touch from overriding mouse
-            if (moveVelX !== 0) {
-                 paddleBody.setLinearVelocity(Vec2(moveVelX, 0));
-            } else if (gpMove === 0) {
-                 // Stop moving if no digital input is pressed (mouse will keep providing velocity)
-                 const currentVel = paddleBody.getLinearVelocity();
-                 if(Math.abs(currentVel.x) > 0.1) paddleBody.setLinearVelocity(Vec2(0, 0));
-            }
-        } else { // Auto-follow Mode
+        } else {
             const ballPos = ballBody.getPosition();
             const paddlePos = paddleBody.getPosition();
-            const desiredVelX = (ballPos.x - paddlePos.x) * 10; // Proportional controller
+            const desiredVelX = (ballPos.x - paddlePos.x) * 10;
             paddleBody.setLinearVelocity(Vec2(desiredVelX, 0));
         }
 
-        // Advance physics simulation
         world.step(1 / 60);
 
-        // Clean up destroyed bodies
         bodiesToDestroy.forEach(body => world.destroyBody(body));
         bodiesToDestroy = [];
+        ensureNonHorizontal(); // Still useful for brick collisions
 
-        // Ensure ball doesn't get stuck horizontally
-        ensureNonHorizontal();
-
-        // Game Over Check
         const ballPos = ballBody.getPosition();
         if (mToPx(ballPos.y) - ball.radius > SCREEN_HEIGHT && running) {
-            console.log("Game Over - Starting countdown...");
             running = false;
             initialAutoSpeedRampActive = false;
             manageAutoSpeedIncrease();
@@ -494,7 +468,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 countdownValue--;
                 if (countdownValue <= 0) {
                     clearInterval(countdownIntervalId);
-                    countdownIntervalId = null;
                     resetGame(false);
                 }
             }, 1000);
@@ -508,50 +481,32 @@ document.addEventListener('DOMContentLoaded', () => {
         drawBricks();
         drawBall();
         drawScoreAndInfo();
-        if (countdownActive) {
-            drawCountdown();
-        }
+        if (countdownActive) drawCountdown();
     }
 
     function gameLoop() {
-        if (running) {
-            update();
-        }
+        if (running) update();
         draw();
         animationFrameId = requestAnimationFrame(gameLoop);
     }
     
-    // --- UI/BUTTON/TOUCH SETUP (Mostly Unchanged Logic) ---
-
-    // This function can now be removed or simplified as it was for manual speed updates
+    // --- UI/BUTTON/TOUCH SETUP ---
     function manageAutoSpeedIncrease() {
         if (autoFollowMode && initialAutoSpeedRampActive && running) {
             if (!autoSpeedIncreaseIntervalId) {
                 autoSpeedIncreaseIntervalId = setInterval(() => {
-                    if (autoFollowMode && initialAutoSpeedRampActive && running) {
-                        if (ball.speed < MAX_BALL_SPEED) {
-                            console.log(`Auto mode (initial ramp): Speed increased...`);
-                            updateBallSpeed(Math.min(ball.speed + 5, MAX_BALL_SPEED));
-                            if (ball.speed >= MAX_BALL_SPEED) {
-                                initialAutoSpeedRampActive = false;
-                                console.log(`Auto mode (initial ramp): Reached MAX speed. Ramp finished.`);
-                            }
-                        } else {
-                            initialAutoSpeedRampActive = false;
-                        }
-                    } else {
-                        if (autoSpeedIncreaseIntervalId) {
-                            clearInterval(autoSpeedIncreaseIntervalId);
-                            autoSpeedIncreaseIntervalId = null;
-                        }
+                    if (autoFollowMode && initialAutoSpeedRampActive && running && ball.speed < MAX_BALL_SPEED) {
+                        updateBallSpeed(Math.min(ball.speed + 5, MAX_BALL_SPEED));
+                        if (ball.speed >= MAX_BALL_SPEED) initialAutoSpeedRampActive = false;
+                    } else if(autoSpeedIncreaseIntervalId) {
+                        clearInterval(autoSpeedIncreaseIntervalId);
+                        autoSpeedIncreaseIntervalId = null;
                     }
                 }, 2500);
             }
-        } else {
-            if (autoSpeedIncreaseIntervalId) {
-                clearInterval(autoSpeedIncreaseIntervalId);
-                autoSpeedIncreaseIntervalId = null;
-            }
+        } else if (autoSpeedIncreaseIntervalId) {
+            clearInterval(autoSpeedIncreaseIntervalId);
+            autoSpeedIncreaseIntervalId = null;
         }
     }
 
@@ -562,8 +517,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('btnTeleportBall').addEventListener('click', teleportBallToPaddle);
         document.getElementById('btnNewGame').addEventListener('click', () => resetGame(true, ball.speed));
         document.getElementById('btnToggleTouch').addEventListener('click', toggleTouchControls);
-        
-        // Manual move buttons (less effective with physics, but kept for parity)
         document.getElementById('btnMoveLeft').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(-paddle.speed, 0)); });
         document.getElementById('btnMoveRight').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(paddle.speed, 0)); });
     }
@@ -581,13 +534,8 @@ document.addEventListener('DOMContentLoaded', () => {
         touchRightEl = document.getElementById('touchControlRight');
         touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible);
         touchRightEl.classList.toggle('hidden', !touchControlsAreVisible);
-
-        const handleTouchStart = (direction) => { 
-            if (autoFollowMode) toggleAutoFollow();
-            paddleMoveDirectionTouch = direction; 
-        };
+        const handleTouchStart = (direction) => { if (autoFollowMode) toggleAutoFollow(); paddleMoveDirectionTouch = direction; };
         const handleTouchEnd = () => { paddleMoveDirectionTouch = 0; };
-
         ['mousedown', 'touchstart'].forEach(evt => {
             touchLeftEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(-1); }, { passive: false });
             touchRightEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(1); }, { passive: false });
@@ -600,13 +548,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- INITIALIZE AND START GAME ---
     setupButtonControls();
     setupTouchControls();
-
-    const activateManualControl = (e) => {
-        if (autoFollowMode) {
-            e.preventDefault();
-            toggleAutoFollow();
-        }
-    };
+    const activateManualControl = (e) => { if (autoFollowMode) { e.preventDefault(); toggleAutoFollow(); } };
     canvas.addEventListener('mousedown', activateManualControl);
     canvas.addEventListener('touchstart', activateManualControl, { passive: false });
     
