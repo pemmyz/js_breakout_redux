@@ -17,31 +17,21 @@ document.addEventListener('DOMContentLoaded', () => {
         gameArea.style.height = SCREEN_HEIGHT + 'px';
     }
 
-    // Physics world scale (30 pixels = 1 meter)
+    // Physics world scale
     const SCALE = 30;
     const pxToM = (px) => px / SCALE;
     const mToPx = (m) => m * SCALE;
 
     // Brick properties
-    const BRICK_WIDTH = 60;
-    const BRICK_HEIGHT = 20;
-    const BRICK_ROWS = 5;
-    const BRICK_COLS = 10;
-    const BRICK_PADDING = 10;
-    const BRICK_OFFSET_TOP = 35;
-    const BRICK_OFFSET_LEFT = 35;
+    const BRICK_WIDTH = 60, BRICK_HEIGHT = 20, BRICK_ROWS = 5, BRICK_COLS = 10;
+    const BRICK_PADDING = 10, BRICK_OFFSET_TOP = 35, BRICK_OFFSET_LEFT = 35;
 
     // Colors
-    const COLOR_BLACK = 'black';
-    const COLOR_WHITE = 'white';
-    const COLOR_RED = 'red';
-    const COLOR_BLUE = 'blue';
+    const COLOR_BLACK = 'black', COLOR_WHITE = 'white', COLOR_RED = 'red', COLOR_BLUE = 'blue';
 
     // Default speeds
-    const DEFAULT_BALL_SPEED = 7.0;
-    const MAX_BALL_SPEED = 50.0;
-    const DEFAULT_PADDLE_SPEED = 9;
-    const PADDLE_SPEED_RATIO = DEFAULT_PADDLE_SPEED / DEFAULT_BALL_SPEED;
+    const DEFAULT_BALL_SPEED = 7.0, MAX_BALL_SPEED = 50.0;
+    const DEFAULT_PADDLE_SPEED = 9, PADDLE_SPEED_RATIO = DEFAULT_PADDLE_SPEED / DEFAULT_BALL_SPEED;
 
     // Game Objects
     let paddle = { width: 100, height: 10, speed: DEFAULT_PADDLE_SPEED };
@@ -49,9 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let bricks = [];
 
     // Physics Objects
-    let world;
-    let ballBody, paddleBody;
-    let bodiesToDestroy = [];
+    let world, ballBody, paddleBody, bodiesToDestroy = [];
 
     // Game state variables
     let score = 0;
@@ -60,23 +48,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let animationFrameId;
     let paddleMoveDirectionTouch = 0;
     let mouseTargetX = null;
+    // NEW: Tracks if mouse control is explicitly enabled by a click.
+    let mouseControlActive = false;
 
     // Countdown variables
-    let countdownActive = false;
-    let countdownValue = 3;
-    let countdownIntervalId = null;
+    let countdownActive = false, countdownValue = 3, countdownIntervalId = null;
 
     // Touch Controls Visibility
-    let touchControlsAreVisible = true;
-    let touchLeftEl, touchRightEl;
+    let touchControlsAreVisible = true, touchLeftEl, touchRightEl;
 
     // Time variables
-    let global_start_time = Date.now();
-    let new_game_timeout_id = null;
-    let autoSpeedIncreaseIntervalId = null;
-    let initialAutoSpeedRampActive = false;
-    let showInitialAutomodeMessage = false;
-    let initialMessageTimeoutId = null;
+    let global_start_time = Date.now(), new_game_timeout_id = null;
+    let autoSpeedIncreaseIntervalId = null, initialAutoSpeedRampActive = false;
+    let showInitialAutomodeMessage = false, initialMessageTimeoutId = null;
 
     // DOM Elements
     const autoFollowStatusElement = document.getElementById('autoFollowStatus');
@@ -95,6 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (paddle.speed < 3) paddle.speed = 3;
     }
 
+    // MODIFIED: Added logic to reset mouse control state
     function toggleAutoFollow() {
         autoFollowMode = !autoFollowMode;
         if (autoFollowStatusElement) {
@@ -103,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (autoFollowMode) {
             paddleMoveDirectionTouch = 0;
             mouseTargetX = null;
+            // NEW: Deactivate mouse control when returning to auto-follow.
+            mouseControlActive = false;
             if (paddleBody) paddleBody.setLinearVelocity(Vec2(0, 0));
         } else {
             initialAutoSpeedRampActive = false;
@@ -126,7 +113,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const vel = ballBody.getLinearVelocity();
         const speed = vel.length();
         if (speed === 0) return;
-
         const minVerticalRatio = 0.15;
         if (Math.abs(vel.y / speed) < minVerticalRatio) {
             vel.y = (vel.y >= 0 ? 1 : -1) * speed * minVerticalRatio;
@@ -136,100 +122,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // --- DRAW FUNCTIONS ---
-    function drawPaddle() {
-        if (!paddleBody) return;
-        const pos = paddleBody.getPosition();
-        const x = mToPx(pos.x) - paddle.width / 2;
-        const y = mToPx(pos.y) - paddle.height / 2;
-        ctx.beginPath();
-        ctx.rect(x, y, paddle.width, paddle.height);
-        ctx.fillStyle = COLOR_BLUE;
-        ctx.fill();
-        ctx.closePath();
-    }
-
-    function drawBall() {
-        if (!ballBody) return;
-        const pos = ballBody.getPosition();
-        ctx.beginPath();
-        ctx.arc(mToPx(pos.x), mToPx(pos.y), ball.radius, 0, Math.PI * 2);
-        ctx.fillStyle = COLOR_WHITE;
-        ctx.fill();
-        ctx.closePath();
-    }
-
-    function drawBricks() {
-        for (const brick of bricks) {
-            if (brick.status === 1) {
-                ctx.beginPath();
-                ctx.rect(brick.x, brick.y, BRICK_WIDTH, BRICK_HEIGHT);
-                ctx.fillStyle = COLOR_RED;
-                ctx.fill();
-                ctx.closePath();
-            }
-        }
-    }
-
-    function drawScoreAndInfo() {
-        ctx.font = '18px Arial';
-        ctx.fillStyle = COLOR_WHITE;
-        ctx.textAlign = 'left';
-        ctx.fillText(`Speed: ${ball.speed.toFixed(1)}`, 10, 20);
-        ctx.textAlign = 'right';
-        ctx.fillText(`Score: ${score}`, SCREEN_WIDTH - 10, 20);
-        ctx.textAlign = 'left';
-        const global_elapsed_time = (Date.now() - global_start_time) / 1000;
-        ctx.fillText(`Playtime: ${global_elapsed_time.toFixed(1)}s`, 10, SCREEN_HEIGHT - 10);
-        if (showInitialAutomodeMessage) {
-            ctx.font = '20px Arial';
-            ctx.fillStyle = 'yellow';
-            ctx.textAlign = 'center';
-            ctx.fillText("Automode enabled. Click screen or move mouse to take control.", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 100);
-        }
-    }
-
-    function drawCountdown() {
-        ctx.font = "120px Arial";
-        ctx.fillStyle = "rgba(255, 255, 0, 0.9)";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(countdownValue, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50);
-        ctx.font = "24px Arial";
-        ctx.fillStyle = "orange";
-        ctx.fillText(`Final Score: ${score}`, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20);
-    }
+    // --- DRAW FUNCTIONS --- (Unchanged)
+    function drawPaddle() { if (!paddleBody) return; const pos = paddleBody.getPosition(); const x = mToPx(pos.x) - paddle.width / 2; const y = mToPx(pos.y) - paddle.height / 2; ctx.beginPath(); ctx.rect(x, y, paddle.width, paddle.height); ctx.fillStyle = COLOR_BLUE; ctx.fill(); ctx.closePath(); }
+    function drawBall() { if (!ballBody) return; const pos = ballBody.getPosition(); ctx.beginPath(); ctx.arc(mToPx(pos.x), mToPx(pos.y), ball.radius, 0, Math.PI * 2); ctx.fillStyle = COLOR_WHITE; ctx.fill(); ctx.closePath(); }
+    function drawBricks() { for (const brick of bricks) { if (brick.status === 1) { ctx.beginPath(); ctx.rect(brick.x, brick.y, BRICK_WIDTH, BRICK_HEIGHT); ctx.fillStyle = COLOR_RED; ctx.fill(); ctx.closePath(); } } }
+    function drawScoreAndInfo() { ctx.font = '18px Arial'; ctx.fillStyle = COLOR_WHITE; ctx.textAlign = 'left'; ctx.fillText(`Speed: ${ball.speed.toFixed(1)}`, 10, 20); ctx.textAlign = 'right'; ctx.fillText(`Score: ${score}`, SCREEN_WIDTH - 10, 20); ctx.textAlign = 'left'; const global_elapsed_time = (Date.now() - global_start_time) / 1000; ctx.fillText(`Playtime: ${global_elapsed_time.toFixed(1)}s`, 10, SCREEN_HEIGHT - 10); if (showInitialAutomodeMessage) { ctx.font = '20px Arial'; ctx.fillStyle = 'yellow'; ctx.textAlign = 'center'; ctx.fillText("Automode enabled. Click screen to take control.", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 100); } }
+    function drawCountdown() { ctx.font = "120px Arial"; ctx.fillStyle = "rgba(255, 255, 0, 0.9)"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(countdownValue, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50); ctx.font = "24px Arial"; ctx.fillStyle = "orange"; ctx.fillText(`Final Score: ${score}`, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20); }
 
     // --- GAME LOGIC ---
     function resetGame(keepScore = false, retainSpeed = null) {
         if (countdownIntervalId) clearInterval(countdownIntervalId);
         if (new_game_timeout_id) clearTimeout(new_game_timeout_id);
-        countdownIntervalId = null;
-        new_game_timeout_id = null;
-        countdownActive = false;
+        countdownIntervalId = null; new_game_timeout_id = null; countdownActive = false;
 
         world = pl.World({ gravity: Vec2(0, 0) });
         bodiesToDestroy = [];
 
-        // --- MODIFIED: Added a 'side' property for identifying walls ---
-        const wallThicknessM = pxToM(10);
-        const screenWidthM = pxToM(SCREEN_WIDTH);
-        const screenHeightM = pxToM(SCREEN_HEIGHT);
-
+        const wallThicknessM = pxToM(10), screenWidthM = pxToM(SCREEN_WIDTH), screenHeightM = pxToM(SCREEN_HEIGHT);
         const wallDefs = [
             { pos: Vec2(screenWidthM / 2, -wallThicknessM / 2), w: screenWidthM, h: wallThicknessM, side: 'top' },
             { pos: Vec2(-wallThicknessM / 2, screenHeightM / 2), w: wallThicknessM, h: screenHeightM, side: 'left' },
             { pos: Vec2(screenWidthM + wallThicknessM / 2, screenHeightM / 2), w: wallThicknessM, h: screenHeightM, side: 'right' },
         ];
-
         wallDefs.forEach(def => {
             const wallBody = world.createBody({ type: 'static', position: def.pos });
-            const fixture = wallBody.createFixture(pl.Box(def.w / 2, def.h / 2), { restitution: 1.0, friction: 0.0 });
-            // --- NEW: Tagging the wall fixture with its side ---
-            fixture.setUserData({ type: 'wall', side: def.side });
+            wallBody.createFixture(pl.Box(def.w / 2, def.h / 2), { restitution: 1.0, friction: 0.0 }).setUserData({ type: 'wall', side: def.side });
         });
 
-        // Create Paddle, Ball, Bricks...
         paddleBody = world.createBody({ type: 'kinematic', position: Vec2(pxToM(SCREEN_WIDTH / 2), pxToM(SCREEN_HEIGHT - 50)) });
         paddleBody.createFixture(pl.Box(pxToM(paddle.width / 2), pxToM(paddle.height / 2)), {}).setUserData({ type: 'paddle' });
         
@@ -242,100 +161,19 @@ document.addEventListener('DOMContentLoaded', () => {
         ballBody.setLinearVelocity(Vec2(ball.speed * Math.cos(initialAngle), ball.speed * Math.sin(initialAngle)));
 
         bricks = [];
-        for (let r = 0; r < BRICK_ROWS; r++) {
-            for (let c = 0; c < BRICK_COLS; c++) {
-                const brickX = c * (BRICK_WIDTH + BRICK_PADDING) + BRICK_OFFSET_LEFT;
-                const brickY = r * (BRICK_HEIGHT + BRICK_PADDING) + BRICK_OFFSET_TOP;
-                const brickBody = world.createBody({ type: 'static', position: Vec2(pxToM(brickX + BRICK_WIDTH / 2), pxToM(brickY + BRICK_HEIGHT / 2)) });
-                const brickRenderInfo = { x: brickX, y: brickY, status: 1, body: brickBody };
-                brickBody.createFixture(pl.Box(pxToM(BRICK_WIDTH / 2), pxToM(BRICK_HEIGHT / 2)), {}).setUserData({ type: 'brick', renderInfo: brickRenderInfo });
-                bricks.push(brickRenderInfo);
-            }
-        }
+        for (let r = 0; r < BRICK_ROWS; r++) { for (let c = 0; c < BRICK_COLS; c++) { const brickX = c * (BRICK_WIDTH + BRICK_PADDING) + BRICK_OFFSET_LEFT; const brickY = r * (BRICK_HEIGHT + BRICK_PADDING) + BRICK_OFFSET_TOP; const brickBody = world.createBody({ type: 'static', position: Vec2(pxToM(brickX + BRICK_WIDTH / 2), pxToM(brickY + BRICK_HEIGHT / 2)) }); const brickRenderInfo = { x: brickX, y: brickY, status: 1, body: brickBody }; brickBody.createFixture(pl.Box(pxToM(BRICK_WIDTH / 2), pxToM(BRICK_HEIGHT / 2)), {}).setUserData({ type: 'brick', renderInfo: brickRenderInfo }); bricks.push(brickRenderInfo); } }
         
-        // Setup Collision Listeners
-        world.on('pre-solve', (contact) => {
-            const dataA = (contact.getFixtureA().getUserData() || {});
-            const dataB = (contact.getFixtureB().getUserData() || {});
-            if ((dataA.type === 'ball' && dataB.type === 'paddle') || (dataA.type === 'paddle' && dataB.type === 'ball')) {
-                contact.setEnabled(false);
-                const ballPos = ballBody.getPosition();
-                const paddlePos = paddleBody.getPosition();
-                let relativeIntersectX = (ballPos.x - paddlePos.x) / (pxToM(paddle.width) / 2);
-                relativeIntersectX = Math.max(-1, Math.min(1, relativeIntersectX));
-                const angle = (relativeIntersectX * 75) * (Math.PI / 180);
-                ballBody.setLinearVelocity(Vec2(ball.speed * Math.sin(angle), -ball.speed * Math.cos(angle)));
-            }
-        });
+        world.on('pre-solve', (contact) => { const dataA = (contact.getFixtureA().getUserData() || {}), dataB = (contact.getFixtureB().getUserData() || {}); if ((dataA.type === 'ball' && dataB.type === 'paddle') || (dataA.type === 'paddle' && dataB.type === 'ball')) { contact.setEnabled(false); const ballPos = ballBody.getPosition(), paddlePos = paddleBody.getPosition(); let relativeIntersectX = (ballPos.x - paddlePos.x) / (pxToM(paddle.width) / 2); relativeIntersectX = Math.max(-1, Math.min(1, relativeIntersectX)); const angle = (relativeIntersectX * 75) * (Math.PI / 180); ballBody.setLinearVelocity(Vec2(ball.speed * Math.sin(angle), -ball.speed * Math.cos(angle))); } });
+        world.on('begin-contact', (contact) => { const dataA = (contact.getFixtureA().getUserData() || {}), dataB = (contact.getFixtureB().getUserData() || {}); const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null); const brickData = dataA.type === 'brick' ? dataA : (dataB.type === 'brick' ? dataB : null); if (ballData && brickData && brickData.renderInfo.status === 1) { brickData.renderInfo.status = 0; bodiesToDestroy.push(brickData.renderInfo.body); score += 10; if (bricks.every(b => b.status === 0)) { if (!new_game_timeout_id) { new_game_timeout_id = setTimeout(() => { resetGame(true, ball.speed); }, 2500); } } } });
+        world.on('post-solve', (contact) => { const dataA = contact.getFixtureA().getUserData() || {}, dataB = contact.getFixtureB().getUserData() || {}; const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null); const wallData = dataA.type === 'wall' ? dataA : (dataB.type === 'wall' ? dataB : null); if (ballData && wallData) { const vel = ballBody.getLinearVelocity(), speed = vel.length(), minComponent = speed * 0.2; let corrected = false; if ((wallData.side === 'left' || wallData.side === 'right') && Math.abs(vel.x) < minComponent) { vel.x = (vel.x > 0 ? 1 : -1) * minComponent; corrected = true; } else if (wallData.side === 'top' && Math.abs(vel.y) < minComponent) { vel.y = (vel.y > 0 ? 1 : -1) * minComponent; corrected = true; } if (corrected) { vel.normalize(); vel.mul(speed); ballBody.setLinearVelocity(vel); } } });
 
-        world.on('begin-contact', (contact) => {
-            const dataA = (contact.getFixtureA().getUserData() || {});
-            const dataB = (contact.getFixtureB().getUserData() || {});
-            const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null);
-            const brickData = dataA.type === 'brick' ? dataA : (dataB.type === 'brick' ? dataB : null);
-            if (ballData && brickData && brickData.renderInfo.status === 1) {
-                brickData.renderInfo.status = 0;
-                bodiesToDestroy.push(brickData.renderInfo.body);
-                score += 10;
-                if (bricks.every(b => b.status === 0)) {
-                    if (!new_game_timeout_id) {
-                        new_game_timeout_id = setTimeout(() => { resetGame(true, ball.speed); }, 2500);
-                    }
-                }
-            }
-        });
-        
-        // --- NEW: Post-Solve Listener to fix wall bounces ---
-        world.on('post-solve', (contact) => {
-            const dataA = contact.getFixtureA().getUserData() || {};
-            const dataB = contact.getFixtureB().getUserData() || {};
-            
-            const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null);
-            const wallData = dataA.type === 'wall' ? dataA : (dataB.type === 'wall' ? dataB : null);
-
-            if (ballData && wallData) {
-                const vel = ballBody.getLinearVelocity();
-                const speed = vel.length();
-                const minComponent = speed * 0.2; // Min velocity component should be 20% of total speed
-
-                let corrected = false;
-                if (wallData.side === 'left' || wallData.side === 'right') {
-                    if (Math.abs(vel.x) < minComponent) {
-                        vel.x = (vel.x > 0 ? 1 : -1) * minComponent;
-                        corrected = true;
-                    }
-                } else if (wallData.side === 'top') {
-                    if (Math.abs(vel.y) < minComponent) {
-                        vel.y = (vel.y > 0 ? 1 : -1) * minComponent;
-                         corrected = true;
-                    }
-                }
-
-                if (corrected) {
-                    vel.normalize();
-                    vel.mul(speed); // Re-apply original speed to the new direction vector
-                    ballBody.setLinearVelocity(vel);
-                }
-            }
-        });
-
-        // Reset game state
-        if (!keepScore) {
-            score = 0;
-            global_start_time = Date.now();
-            showInitialAutomodeMessage = true;
-            initialAutoSpeedRampActive = true;
-            if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId);
-            initialMessageTimeoutId = setTimeout(() => { showInitialAutomodeMessage = false; }, 15000);
-        } else {
-            showInitialAutomodeMessage = false;
-            initialAutoSpeedRampActive = false;
-            if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId);
-        }
+        if (!keepScore) { score = 0; global_start_time = Date.now(); showInitialAutomodeMessage = true; initialAutoSpeedRampActive = true; if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId); initialMessageTimeoutId = setTimeout(() => { showInitialAutomodeMessage = false; }, 15000); } else { showInitialAutomodeMessage = false; initialAutoSpeedRampActive = false; if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId); }
 
         if (autoFollowStatusElement) autoFollowStatusElement.textContent = `Auto-Follow: ${autoFollowMode ? 'ON' : 'OFF'}`;
         paddleMoveDirectionTouch = 0;
         mouseTargetX = null;
+        // NEW: Reset mouse control state on every new game.
+        mouseControlActive = false;
         running = true;
         manageAutoSpeedIncrease();
         if (!animationFrameId) gameLoop();
@@ -343,214 +181,84 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- KEYBOARD & MOUSE CONTROLS ---
     let keysPressed = {};
-    document.addEventListener('keydown', (e) => {
-        const key = e.key.toLowerCase();
-        keysPressed[key] = true;
-        if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault();
-        if (key === 'a') toggleAutoFollow();
-        if (key === ' ') teleportBallToPaddle();
-        if (key === 'n') resetGame(true, ball.speed);
-        if (key === 't') toggleTouchControls();
-    });
+    document.addEventListener('keydown', (e) => { const key = e.key.toLowerCase(); keysPressed[key] = true; if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault(); if (key === 'a') toggleAutoFollow(); if (key === ' ') teleportBallToPaddle(); if (key === 'n') resetGame(true, ball.speed); if (key === 't') toggleTouchControls(); });
     document.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
     
+    // MODIFIED: mousemove no longer toggles auto-follow. It only works if mouse control is active.
     canvas.addEventListener('mousemove', (e) => {
-        if (autoFollowMode) toggleAutoFollow();
-        if (!autoFollowMode) {
+        // Only move the paddle with the mouse if control has been activated by a click.
+        if (mouseControlActive && !autoFollowMode) {
             const rect = canvas.getBoundingClientRect();
             mouseTargetX = pxToM(e.clientX - rect.left);
         }
     });
-    canvas.addEventListener('mouseleave', () => { if (!autoFollowMode) mouseTargetX = null; });
 
-    function handleManualSpeedChange() {
-        if (initialAutoSpeedRampActive) {
-            initialAutoSpeedRampActive = false;
-            manageAutoSpeedIncrease();
+    // MODIFIED: Check for mouseControlActive for clarity.
+    canvas.addEventListener('mouseleave', () => {
+        if (mouseControlActive) {
+            mouseTargetX = null; // Stop the paddle when mouse leaves
         }
-    }
+    });
 
-    // --- GAMEPAD CONTROLS ---
-    const GAMEPAD_DEADZONE = 0.25;
-    let gamepads = {};
-    window.addEventListener("gamepadconnected", (e) => gamepads[e.gamepad.index] = { controller: e.gamepad, prevButtonStates: e.gamepad.buttons.map(b => b.pressed) });
-    window.addEventListener("gamepaddisconnected", (e) => delete gamepads[e.gamepad.index]);
+    function handleManualSpeedChange() { if (initialAutoSpeedRampActive) { initialAutoSpeedRampActive = false; manageAutoSpeedIncrease(); } }
 
-    function handleGamepadInput() {
-        const latestGamepads = navigator.getGamepads();
-        if (!latestGamepads) return;
-
-        for (const gp of latestGamepads) {
-            if (!gp || !gamepads[gp.index]) continue;
-            const prevStates = gamepads[gp.index].prevButtonStates;
-            const isButtonPressed = (i) => gp.buttons[i] && gp.buttons[i].pressed && !prevStates[i];
-
-            if (isButtonPressed(0)) toggleAutoFollow();
-            if (isButtonPressed(1)) teleportBallToPaddle();
-            if (isButtonPressed(9)) resetGame(true, ball.speed);
-
-            if (isButtonPressed(5)) { updateBallSpeed(Math.min(ball.speed + 2.0, MAX_BALL_SPEED)); handleManualSpeedChange(); }
-            if (isButtonPressed(4)) { updateBallSpeed(Math.max(ball.speed - 2.0, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); }
-            
-            gamepads[gp.index].prevButtonStates = gp.buttons.map(b => b.pressed);
-        }
-    }
+    // --- GAMEPAD CONTROLS --- (Unchanged)
+    const GAMEPAD_DEADZONE = 0.25; let gamepads = {}; window.addEventListener("gamepadconnected", (e) => gamepads[e.gamepad.index] = { controller: e.gamepad, prevButtonStates: e.gamepad.buttons.map(b => b.pressed) }); window.addEventListener("gamepaddisconnected", (e) => delete gamepads[e.gamepad.index]);
+    function handleGamepadInput() { const latestGamepads = navigator.getGamepads(); if (!latestGamepads) return; for (const gp of latestGamepads) { if (!gp || !gamepads[gp.index]) continue; const prevStates = gamepads[gp.index].prevButtonStates; const isButtonPressed = (i) => gp.buttons[i] && gp.buttons[i].pressed && !prevStates[i]; if (isButtonPressed(0)) toggleAutoFollow(); if (isButtonPressed(1)) teleportBallToPaddle(); if (isButtonPressed(9)) resetGame(true, ball.speed); if (isButtonPressed(5)) { updateBallSpeed(Math.min(ball.speed + 2.0, MAX_BALL_SPEED)); handleManualSpeedChange(); } if (isButtonPressed(4)) { updateBallSpeed(Math.max(ball.speed - 2.0, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); } gamepads[gp.index].prevButtonStates = gp.buttons.map(b => b.pressed); } }
     
-    // --- MAIN UPDATE AND GAME LOOP ---
+    // --- MAIN UPDATE AND GAME LOOP --- (Unchanged)
     function update() {
         if (!world || !ballBody || !paddleBody) return;
-
         handleGamepadInput();
-
-        let speedChanged = false;
-        if (keysPressed['arrowup']) { updateBallSpeed(Math.min(ball.speed + 0.2, MAX_BALL_SPEED)); speedChanged = true; }
-        if (keysPressed['arrowdown']) { updateBallSpeed(Math.max(ball.speed - 0.2, DEFAULT_BALL_SPEED * 0.5)); speedChanged = true; }
-        if (speedChanged) handleManualSpeedChange();
-
+        let speedChanged = false; if (keysPressed['arrowup']) { updateBallSpeed(Math.min(ball.speed + 0.2, MAX_BALL_SPEED)); speedChanged = true; } if (keysPressed['arrowdown']) { updateBallSpeed(Math.max(ball.speed - 0.2, DEFAULT_BALL_SPEED * 0.5)); speedChanged = true; } if (speedChanged) handleManualSpeedChange();
         if (!autoFollowMode) {
             let desiredVelX = 0;
             const paddleVel = paddle.speed * 1.5;
-
-            if (mouseTargetX !== null) {
-                const currentPos = paddleBody.getPosition();
-                desiredVelX = (mouseTargetX - currentPos.x) * 10;
-            } else {
-                let gpAnalogMove = 0;
-                const latestGamepads = navigator.getGamepads();
-                if (latestGamepads) {
-                    for (const gp of latestGamepads) { if (gp && Math.abs(gp.axes[0]) > GAMEPAD_DEADZONE) { gpAnalogMove = gp.axes[0]; break; } }
-                }
-                
-                if (gpAnalogMove !== 0) {
-                    desiredVelX = gpAnalogMove * paddleVel;
-                } else {
-                    let digitalMove = 0;
-                    let gpDPadMove = 0;
-                    if (latestGamepads) {
-                        for (const gp of latestGamepads) {
-                            if (!gp) continue;
-                            if (gp.buttons[14] && gp.buttons[14].pressed) { gpDPadMove = -1; break; }
-                            if (gp.buttons[15] && gp.buttons[15].pressed) { gpDPadMove = 1; break; }
-                        }
-                    }
-                    if (gpDPadMove !== 0) digitalMove = gpDPadMove;
-                    else if (keysPressed['arrowleft']) digitalMove = -1;
-                    else if (keysPressed['arrowright']) digitalMove = 1;
-                    else if (paddleMoveDirectionTouch !== 0) digitalMove = paddleMoveDirectionTouch;
-                    
+            if (mouseTargetX !== null) { const currentPos = paddleBody.getPosition(); desiredVelX = (mouseTargetX - currentPos.x) * 10; } 
+            else {
+                let gpAnalogMove = 0; const latestGamepads = navigator.getGamepads(); if (latestGamepads) { for (const gp of latestGamepads) { if (gp && Math.abs(gp.axes[0]) > GAMEPAD_DEADZONE) { gpAnalogMove = gp.axes[0]; break; } } }
+                if (gpAnalogMove !== 0) { desiredVelX = gpAnalogMove * paddleVel; } 
+                else {
+                    let digitalMove = 0, gpDPadMove = 0; if (latestGamepads) { for (const gp of latestGamepads) { if (!gp) continue; if (gp.buttons[14] && gp.buttons[14].pressed) { gpDPadMove = -1; break; } if (gp.buttons[15] && gp.buttons[15].pressed) { gpDPadMove = 1; break; } } }
+                    if (gpDPadMove !== 0) digitalMove = gpDPadMove; else if (keysPressed['arrowleft']) digitalMove = -1; else if (keysPressed['arrowright']) digitalMove = 1; else if (paddleMoveDirectionTouch !== 0) digitalMove = paddleMoveDirectionTouch;
                     if (digitalMove !== 0) desiredVelX = digitalMove * paddleVel;
                 }
             }
             paddleBody.setLinearVelocity(Vec2(desiredVelX, 0));
-
-        } else {
-            const ballPos = ballBody.getPosition();
-            const paddlePos = paddleBody.getPosition();
-            const desiredVelX = (ballPos.x - paddlePos.x) * 10;
-            paddleBody.setLinearVelocity(Vec2(desiredVelX, 0));
-        }
-
+        } else { const ballPos = ballBody.getPosition(), paddlePos = paddleBody.getPosition(); const desiredVelX = (ballPos.x - paddlePos.x) * 10; paddleBody.setLinearVelocity(Vec2(desiredVelX, 0)); }
         world.step(1 / 60);
-
-        bodiesToDestroy.forEach(body => world.destroyBody(body));
-        bodiesToDestroy = [];
-        ensureNonHorizontal(); // Still useful for brick collisions
-
+        bodiesToDestroy.forEach(body => world.destroyBody(body)); bodiesToDestroy = []; ensureNonHorizontal();
         const ballPos = ballBody.getPosition();
         if (mToPx(ballPos.y) - ball.radius > SCREEN_HEIGHT && running) {
-            running = false;
-            initialAutoSpeedRampActive = false;
-            manageAutoSpeedIncrease();
-            countdownActive = true;
-            countdownValue = 3;
-            if (countdownIntervalId) clearInterval(countdownIntervalId);
-            countdownIntervalId = setInterval(() => {
-                countdownValue--;
-                if (countdownValue <= 0) {
-                    clearInterval(countdownIntervalId);
-                    resetGame(false);
-                }
-            }, 1000);
+            running = false; initialAutoSpeedRampActive = false; manageAutoSpeedIncrease(); countdownActive = true; countdownValue = 3; if (countdownIntervalId) clearInterval(countdownIntervalId);
+            countdownIntervalId = setInterval(() => { countdownValue--; if (countdownValue <= 0) { clearInterval(countdownIntervalId); resetGame(false); } }, 1000);
         }
     }
 
-    function draw() {
-        ctx.fillStyle = COLOR_BLACK;
-        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-        drawPaddle();
-        drawBricks();
-        drawBall();
-        drawScoreAndInfo();
-        if (countdownActive) drawCountdown();
-    }
-
-    function gameLoop() {
-        if (running) update();
-        draw();
-        animationFrameId = requestAnimationFrame(gameLoop);
-    }
+    function draw() { ctx.fillStyle = COLOR_BLACK; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); drawPaddle(); drawBricks(); drawBall(); drawScoreAndInfo(); if (countdownActive) drawCountdown(); }
+    function gameLoop() { if (running) update(); draw(); animationFrameId = requestAnimationFrame(gameLoop); }
     
-    // --- UI/BUTTON/TOUCH SETUP ---
-    function manageAutoSpeedIncrease() {
-        if (autoFollowMode && initialAutoSpeedRampActive && running) {
-            if (!autoSpeedIncreaseIntervalId) {
-                autoSpeedIncreaseIntervalId = setInterval(() => {
-                    if (autoFollowMode && initialAutoSpeedRampActive && running && ball.speed < MAX_BALL_SPEED) {
-                        updateBallSpeed(Math.min(ball.speed + 5, MAX_BALL_SPEED));
-                        if (ball.speed >= MAX_BALL_SPEED) initialAutoSpeedRampActive = false;
-                    } else if(autoSpeedIncreaseIntervalId) {
-                        clearInterval(autoSpeedIncreaseIntervalId);
-                        autoSpeedIncreaseIntervalId = null;
-                    }
-                }, 2500);
-            }
-        } else if (autoSpeedIncreaseIntervalId) {
-            clearInterval(autoSpeedIncreaseIntervalId);
-            autoSpeedIncreaseIntervalId = null;
-        }
-    }
-
-    function setupButtonControls() {
-        document.getElementById('btnIncreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.min(ball.speed + 0.5, MAX_BALL_SPEED)); handleManualSpeedChange(); });
-        document.getElementById('btnDecreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.max(ball.speed - 0.5, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); });
-        document.getElementById('btnToggleAutoFollow').addEventListener('click', toggleAutoFollow);
-        document.getElementById('btnTeleportBall').addEventListener('click', teleportBallToPaddle);
-        document.getElementById('btnNewGame').addEventListener('click', () => resetGame(true, ball.speed));
-        document.getElementById('btnToggleTouch').addEventListener('click', toggleTouchControls);
-        document.getElementById('btnMoveLeft').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(-paddle.speed, 0)); });
-        document.getElementById('btnMoveRight').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(paddle.speed, 0)); });
-    }
-    
-    function toggleTouchControls() {
-        touchControlsAreVisible = !touchControlsAreVisible;
-        if (touchLeftEl && touchRightEl) {
-            touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible);
-            touchRightEl.classList.toggle('hidden', !touchControlsAreVisible);
-        }
-    }
-
-    function setupTouchControls() {
-        touchLeftEl = document.getElementById('touchControlLeft');
-        touchRightEl = document.getElementById('touchControlRight');
-        touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible);
-        touchRightEl.classList.toggle('hidden', !touchControlsAreVisible);
-        const handleTouchStart = (direction) => { if (autoFollowMode) toggleAutoFollow(); paddleMoveDirectionTouch = direction; };
-        const handleTouchEnd = () => { paddleMoveDirectionTouch = 0; };
-        ['mousedown', 'touchstart'].forEach(evt => {
-            touchLeftEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(-1); }, { passive: false });
-            touchRightEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(1); }, { passive: false });
-        });
-        ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(evt => {
-            document.addEventListener(evt, () => { if (paddleMoveDirectionTouch !== 0) handleTouchEnd(); });
-        });
-    }
+    // --- UI/BUTTON/TOUCH SETUP --- (Unchanged)
+    function manageAutoSpeedIncrease() { if (autoFollowMode && initialAutoSpeedRampActive && running) { if (!autoSpeedIncreaseIntervalId) { autoSpeedIncreaseIntervalId = setInterval(() => { if (autoFollowMode && initialAutoSpeedRampActive && running && ball.speed < MAX_BALL_SPEED) { updateBallSpeed(Math.min(ball.speed + 5, MAX_BALL_SPEED)); if (ball.speed >= MAX_BALL_SPEED) initialAutoSpeedRampActive = false; } else if(autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }, 2500); } } else if (autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }
+    function setupButtonControls() { document.getElementById('btnIncreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.min(ball.speed + 0.5, MAX_BALL_SPEED)); handleManualSpeedChange(); }); document.getElementById('btnDecreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.max(ball.speed - 0.5, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); }); document.getElementById('btnToggleAutoFollow').addEventListener('click', toggleAutoFollow); document.getElementById('btnTeleportBall').addEventListener('click', teleportBallToPaddle); document.getElementById('btnNewGame').addEventListener('click', () => resetGame(true, ball.speed)); document.getElementById('btnToggleTouch').addEventListener('click', toggleTouchControls); document.getElementById('btnMoveLeft').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(-paddle.speed, 0)); }); document.getElementById('btnMoveRight').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(paddle.speed, 0)); }); }
+    function toggleTouchControls() { touchControlsAreVisible = !touchControlsAreVisible; if (touchLeftEl && touchRightEl) { touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible); touchRightEl.classList.toggle('hidden', !touchControlsAreVisible); } }
+    function setupTouchControls() { touchLeftEl = document.getElementById('touchControlLeft'); touchRightEl = document.getElementById('touchControlRight'); touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible); touchRightEl.classList.toggle('hidden', !touchControlsAreVisible); const handleTouchStart = (direction) => { if (autoFollowMode) toggleAutoFollow(); paddleMoveDirectionTouch = direction; }; const handleTouchEnd = () => { paddleMoveDirectionTouch = 0; }; ['mousedown', 'touchstart'].forEach(evt => { touchLeftEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(-1); }, { passive: false }); touchRightEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(1); }, { passive: false }); }); ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(evt => { document.addEventListener(evt, () => { if (paddleMoveDirectionTouch !== 0) handleTouchEnd(); }); }); }
 
     // --- INITIALIZE AND START GAME ---
     setupButtonControls();
     setupTouchControls();
-    const activateManualControl = (e) => { if (autoFollowMode) { e.preventDefault(); toggleAutoFollow(); } };
-    canvas.addEventListener('mousedown', activateManualControl);
-    canvas.addEventListener('touchstart', activateManualControl, { passive: false });
+
+    // MODIFIED: This is now the primary way to enable mouse control.
+    const handleCanvasClick = (e) => {
+        if (autoFollowMode) {
+            e.preventDefault();
+            toggleAutoFollow(); // This switches autoFollowMode to false
+        }
+        // After the first click (or any click in manual mode), enable mouse control.
+        mouseControlActive = true;
+    };
+    canvas.addEventListener('mousedown', handleCanvasClick);
+    canvas.addEventListener('touchstart', handleCanvasClick, { passive: false });
     
     resetGame();
 });
