@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Default speeds
     const DEFAULT_BALL_SPEED = 7.0, MAX_BALL_SPEED = 50.0;
     const DEFAULT_PADDLE_SPEED = 9, PADDLE_SPEED_RATIO = DEFAULT_PADDLE_SPEED / DEFAULT_BALL_SPEED;
+    
+    // NEW: Higher value = faster, more responsive "following" for mouse and auto-mode.
+    const PADDLE_RESPONSIVENESS = 30; 
 
     // Game Objects
     let paddle = { width: 100, height: 10, speed: DEFAULT_PADDLE_SPEED };
@@ -48,7 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let animationFrameId;
     let paddleMoveDirectionTouch = 0;
     let mouseTargetX = null;
-    // NEW: Tracks if mouse control is explicitly enabled by a click.
     let mouseControlActive = false;
 
     // Countdown variables
@@ -79,7 +81,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (paddle.speed < 3) paddle.speed = 3;
     }
 
-    // MODIFIED: Added logic to reset mouse control state
     function toggleAutoFollow() {
         autoFollowMode = !autoFollowMode;
         if (autoFollowStatusElement) {
@@ -88,7 +89,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (autoFollowMode) {
             paddleMoveDirectionTouch = 0;
             mouseTargetX = null;
-            // NEW: Deactivate mouse control when returning to auto-follow.
             mouseControlActive = false;
             if (paddleBody) paddleBody.setLinearVelocity(Vec2(0, 0));
         } else {
@@ -122,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // --- DRAW FUNCTIONS --- (Unchanged)
+    // --- DRAW FUNCTIONS ---
     function drawPaddle() { if (!paddleBody) return; const pos = paddleBody.getPosition(); const x = mToPx(pos.x) - paddle.width / 2; const y = mToPx(pos.y) - paddle.height / 2; ctx.beginPath(); ctx.rect(x, y, paddle.width, paddle.height); ctx.fillStyle = COLOR_BLUE; ctx.fill(); ctx.closePath(); }
     function drawBall() { if (!ballBody) return; const pos = ballBody.getPosition(); ctx.beginPath(); ctx.arc(mToPx(pos.x), mToPx(pos.y), ball.radius, 0, Math.PI * 2); ctx.fillStyle = COLOR_WHITE; ctx.fill(); ctx.closePath(); }
     function drawBricks() { for (const brick of bricks) { if (brick.status === 1) { ctx.beginPath(); ctx.rect(brick.x, brick.y, BRICK_WIDTH, BRICK_HEIGHT); ctx.fillStyle = COLOR_RED; ctx.fill(); ctx.closePath(); } } }
@@ -172,7 +172,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (autoFollowStatusElement) autoFollowStatusElement.textContent = `Auto-Follow: ${autoFollowMode ? 'ON' : 'OFF'}`;
         paddleMoveDirectionTouch = 0;
         mouseTargetX = null;
-        // NEW: Reset mouse control state on every new game.
         mouseControlActive = false;
         running = true;
         manageAutoSpeedIncrease();
@@ -184,37 +183,41 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (e) => { const key = e.key.toLowerCase(); keysPressed[key] = true; if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault(); if (key === 'a') toggleAutoFollow(); if (key === ' ') teleportBallToPaddle(); if (key === 'n') resetGame(true, ball.speed); if (key === 't') toggleTouchControls(); });
     document.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
     
-    // MODIFIED: mousemove no longer toggles auto-follow. It only works if mouse control is active.
     canvas.addEventListener('mousemove', (e) => {
-        // Only move the paddle with the mouse if control has been activated by a click.
         if (mouseControlActive && !autoFollowMode) {
             const rect = canvas.getBoundingClientRect();
             mouseTargetX = pxToM(e.clientX - rect.left);
         }
     });
 
-    // MODIFIED: Check for mouseControlActive for clarity.
     canvas.addEventListener('mouseleave', () => {
         if (mouseControlActive) {
-            mouseTargetX = null; // Stop the paddle when mouse leaves
+            mouseTargetX = null;
         }
     });
 
     function handleManualSpeedChange() { if (initialAutoSpeedRampActive) { initialAutoSpeedRampActive = false; manageAutoSpeedIncrease(); } }
 
-    // --- GAMEPAD CONTROLS --- (Unchanged)
+    // --- GAMEPAD CONTROLS ---
     const GAMEPAD_DEADZONE = 0.25; let gamepads = {}; window.addEventListener("gamepadconnected", (e) => gamepads[e.gamepad.index] = { controller: e.gamepad, prevButtonStates: e.gamepad.buttons.map(b => b.pressed) }); window.addEventListener("gamepaddisconnected", (e) => delete gamepads[e.gamepad.index]);
     function handleGamepadInput() { const latestGamepads = navigator.getGamepads(); if (!latestGamepads) return; for (const gp of latestGamepads) { if (!gp || !gamepads[gp.index]) continue; const prevStates = gamepads[gp.index].prevButtonStates; const isButtonPressed = (i) => gp.buttons[i] && gp.buttons[i].pressed && !prevStates[i]; if (isButtonPressed(0)) toggleAutoFollow(); if (isButtonPressed(1)) teleportBallToPaddle(); if (isButtonPressed(9)) resetGame(true, ball.speed); if (isButtonPressed(5)) { updateBallSpeed(Math.min(ball.speed + 2.0, MAX_BALL_SPEED)); handleManualSpeedChange(); } if (isButtonPressed(4)) { updateBallSpeed(Math.max(ball.speed - 2.0, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); } gamepads[gp.index].prevButtonStates = gp.buttons.map(b => b.pressed); } }
     
-    // --- MAIN UPDATE AND GAME LOOP --- (Unchanged)
+    // --- MAIN UPDATE AND GAME LOOP --- (MODIFIED)
     function update() {
         if (!world || !ballBody || !paddleBody) return;
         handleGamepadInput();
         let speedChanged = false; if (keysPressed['arrowup']) { updateBallSpeed(Math.min(ball.speed + 0.2, MAX_BALL_SPEED)); speedChanged = true; } if (keysPressed['arrowdown']) { updateBallSpeed(Math.max(ball.speed - 0.2, DEFAULT_BALL_SPEED * 0.5)); speedChanged = true; } if (speedChanged) handleManualSpeedChange();
+        
         if (!autoFollowMode) {
             let desiredVelX = 0;
-            const paddleVel = paddle.speed * 1.5;
-            if (mouseTargetX !== null) { const currentPos = paddleBody.getPosition(); desiredVelX = (mouseTargetX - currentPos.x) * 10; } 
+            // MODIFIED: Increased multiplier for faster digital movement (keyboard/gamepad/touch).
+            const paddleVel = paddle.speed * 3.0; 
+
+            if (mouseTargetX !== null) { 
+                const currentPos = paddleBody.getPosition();
+                // MODIFIED: Use the new responsiveness factor for mouse control to make it "snap" to the cursor.
+                desiredVelX = (mouseTargetX - currentPos.x) * PADDLE_RESPONSIVENESS; 
+            } 
             else {
                 let gpAnalogMove = 0; const latestGamepads = navigator.getGamepads(); if (latestGamepads) { for (const gp of latestGamepads) { if (gp && Math.abs(gp.axes[0]) > GAMEPAD_DEADZONE) { gpAnalogMove = gp.axes[0]; break; } } }
                 if (gpAnalogMove !== 0) { desiredVelX = gpAnalogMove * paddleVel; } 
@@ -225,7 +228,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             paddleBody.setLinearVelocity(Vec2(desiredVelX, 0));
-        } else { const ballPos = ballBody.getPosition(), paddlePos = paddleBody.getPosition(); const desiredVelX = (ballPos.x - paddlePos.x) * 10; paddleBody.setLinearVelocity(Vec2(desiredVelX, 0)); }
+        } else { 
+            const ballPos = ballBody.getPosition();
+            const paddlePos = paddleBody.getPosition();
+            // MODIFIED: Use the new responsiveness factor for auto-follow mode.
+            const desiredVelX = (ballPos.x - paddlePos.x) * PADDLE_RESPONSIVENESS;
+            paddleBody.setLinearVelocity(Vec2(desiredVelX, 0)); 
+        }
+
         world.step(1 / 60);
         bodiesToDestroy.forEach(body => world.destroyBody(body)); bodiesToDestroy = []; ensureNonHorizontal();
         const ballPos = ballBody.getPosition();
@@ -238,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function draw() { ctx.fillStyle = COLOR_BLACK; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); drawPaddle(); drawBricks(); drawBall(); drawScoreAndInfo(); if (countdownActive) drawCountdown(); }
     function gameLoop() { if (running) update(); draw(); animationFrameId = requestAnimationFrame(gameLoop); }
     
-    // --- UI/BUTTON/TOUCH SETUP --- (Unchanged)
+    // --- UI/BUTTON/TOUCH SETUP ---
     function manageAutoSpeedIncrease() { if (autoFollowMode && initialAutoSpeedRampActive && running) { if (!autoSpeedIncreaseIntervalId) { autoSpeedIncreaseIntervalId = setInterval(() => { if (autoFollowMode && initialAutoSpeedRampActive && running && ball.speed < MAX_BALL_SPEED) { updateBallSpeed(Math.min(ball.speed + 5, MAX_BALL_SPEED)); if (ball.speed >= MAX_BALL_SPEED) initialAutoSpeedRampActive = false; } else if(autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }, 2500); } } else if (autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }
     function setupButtonControls() { document.getElementById('btnIncreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.min(ball.speed + 0.5, MAX_BALL_SPEED)); handleManualSpeedChange(); }); document.getElementById('btnDecreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.max(ball.speed - 0.5, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); }); document.getElementById('btnToggleAutoFollow').addEventListener('click', toggleAutoFollow); document.getElementById('btnTeleportBall').addEventListener('click', teleportBallToPaddle); document.getElementById('btnNewGame').addEventListener('click', () => resetGame(true, ball.speed)); document.getElementById('btnToggleTouch').addEventListener('click', toggleTouchControls); document.getElementById('btnMoveLeft').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(-paddle.speed, 0)); }); document.getElementById('btnMoveRight').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(paddle.speed, 0)); }); }
     function toggleTouchControls() { touchControlsAreVisible = !touchControlsAreVisible; if (touchLeftEl && touchRightEl) { touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible); touchRightEl.classList.toggle('hidden', !touchControlsAreVisible); } }
@@ -248,13 +258,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setupButtonControls();
     setupTouchControls();
 
-    // MODIFIED: This is now the primary way to enable mouse control.
     const handleCanvasClick = (e) => {
         if (autoFollowMode) {
             e.preventDefault();
-            toggleAutoFollow(); // This switches autoFollowMode to false
+            toggleAutoFollow();
         }
-        // After the first click (or any click in manual mode), enable mouse control.
         mouseControlActive = true;
     };
     canvas.addEventListener('mousedown', handleCanvasClick);
