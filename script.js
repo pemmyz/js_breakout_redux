@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let paddleMoveDirectionTouch = 0;
     let mouseTargetX = null;
     let mouseControlActive = false;
+    let consecutiveMiddleHits = 0; // For "super bounce" feature
 
     // Countdown variables
     let countdownActive = false, countdownValue = 3, countdownIntervalId = null;
@@ -185,9 +186,80 @@ document.addEventListener('DOMContentLoaded', () => {
         bricks = [];
         for (let r = 0; r < BRICK_ROWS; r++) { for (let c = 0; c < BRICK_COLS; c++) { const brickX = c * (BRICK_WIDTH + BRICK_PADDING) + BRICK_OFFSET_LEFT; const brickY = r * (BRICK_HEIGHT + BRICK_PADDING) + BRICK_OFFSET_TOP; const brickBody = world.createBody({ type: 'static', position: Vec2(pxToM(brickX + BRICK_WIDTH / 2), pxToM(brickY + BRICK_HEIGHT / 2)) }); const brickRenderInfo = { x: brickX, y: brickY, status: 1, body: brickBody }; brickBody.createFixture(pl.Box(pxToM(BRICK_WIDTH / 2), pxToM(BRICK_HEIGHT / 2)), {}).setUserData({ type: 'brick', renderInfo: brickRenderInfo }); bricks.push(brickRenderInfo); } }
         
-        world.on('pre-solve', (contact) => { const dataA = (contact.getFixtureA().getUserData() || {}), dataB = (contact.getFixtureB().getUserData() || {}); if ((dataA.type === 'ball' && dataB.type === 'paddle') || (dataA.type === 'paddle' && dataB.type === 'ball')) { playSound('flipper', 0.8); contact.setEnabled(false); const ballPos = ballBody.getPosition(), paddlePos = paddleBody.getPosition(); let relativeIntersectX = (ballPos.x - paddlePos.x) / (pxToM(paddle.width) / 2); relativeIntersectX = Math.max(-1, Math.min(1, relativeIntersectX)); const angle = (relativeIntersectX * 75) * (Math.PI / 180); ballBody.setLinearVelocity(Vec2(ball.speed * Math.sin(angle), -ball.speed * Math.cos(angle))); } });
-        world.on('begin-contact', (contact) => { const dataA = (contact.getFixtureA().getUserData() || {}), dataB = (contact.getFixtureB().getUserData() || {}); const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null); const brickData = dataA.type === 'brick' ? dataA : (dataB.type === 'brick' ? dataB : null); if (ballData && brickData && brickData.renderInfo.status === 1) { playSound('bounce', 0.6); brickData.renderInfo.status = 0; bodiesToDestroy.push(brickData.renderInfo.body); score += 10; if (bricks.every(b => b.status === 0)) { if (!new_game_timeout_id) { new_game_timeout_id = setTimeout(() => { resetGame(true, ball.speed); }, 2500); } } } });
-        world.on('post-solve', (contact) => { const dataA = contact.getFixtureA().getUserData() || {}, dataB = contact.getFixtureB().getUserData() || {}; const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null); const wallData = dataA.type === 'wall' ? dataA : (dataB.type === 'wall' ? dataB : null); if (ballData && wallData) { playSound('bounce', 0.3); const vel = ballBody.getLinearVelocity(), speed = vel.length(), minComponent = speed * 0.2; let corrected = false; if ((wallData.side === 'left' || wallData.side === 'right') && Math.abs(vel.x) < minComponent) { vel.x = (vel.x > 0 ? 1 : -1) * minComponent; corrected = true; } else if (wallData.side === 'top' && Math.abs(vel.y) < minComponent) { vel.y = (vel.y > 0 ? 1 : -1) * minComponent; corrected = true; } if (corrected) { vel.normalize(); vel.mul(speed); ballBody.setLinearVelocity(vel); } } });
+        world.on('pre-solve', (contact) => {
+            const dataA = (contact.getFixtureA().getUserData() || {}),
+                dataB = (contact.getFixtureB().getUserData() || {});
+            if ((dataA.type === 'ball' && dataB.type === 'paddle') || (dataA.type === 'paddle' && dataB.type === 'ball')) {
+                playSound('flipper', 0.4); // Volume changed to half
+                contact.setEnabled(false);
+    
+                const ballPos = ballBody.getPosition();
+                const paddlePos = paddleBody.getPosition();
+                const currentVel = ballBody.getLinearVelocity();
+    
+                let relativeIntersectX = (ballPos.x - paddlePos.x) / (pxToM(paddle.width) / 2);
+                
+                const middleThreshold = 0.1; // 10% of paddle half-width is "middle"
+                if (currentVel.y > 0 && Math.abs(relativeIntersectX) < middleThreshold) {
+                    consecutiveMiddleHits++;
+                } else if (currentVel.y > 0) { // Only reset if it's a downward hit, not a graze
+                    consecutiveMiddleHits = 0;
+                }
+    
+                if (consecutiveMiddleHits >= 5) {
+                    const randomOffsetPx = (Math.random() * 10 + 10) * (Math.random() < 0.5 ? 1 : -1);
+                    const offsetM = pxToM(randomOffsetPx);
+                    const newBallPos = Vec2(ballPos.x + offsetM, ballPos.y);
+                    ballBody.setPosition(newBallPos);
+                    relativeIntersectX = (newBallPos.x - paddlePos.x) / (pxToM(paddle.width) / 2);
+                    consecutiveMiddleHits = 0; // Reset after triggering
+                }
+    
+                relativeIntersectX = Math.max(-1, Math.min(1, relativeIntersectX));
+                const angle = (relativeIntersectX * 75) * (Math.PI / 180);
+                ballBody.setLinearVelocity(Vec2(ball.speed * Math.sin(angle), -ball.speed * Math.cos(angle)));
+            }
+        });
+
+        world.on('begin-contact', (contact) => {
+            const dataA = (contact.getFixtureA().getUserData() || {}), dataB = (contact.getFixtureB().getUserData() || {});
+            const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null);
+            const brickData = dataA.type === 'brick' ? dataA : (dataB.type === 'brick' ? dataB : null);
+            if (ballData && brickData && brickData.renderInfo.status === 1) {
+                playSound('bounce', 0.6);
+                brickData.renderInfo.status = 0;
+                bodiesToDestroy.push(brickData.renderInfo.body);
+                score += 10;
+                consecutiveMiddleHits = 0; // Reset counter on brick hit
+                if (bricks.every(b => b.status === 0)) {
+                    if (!new_game_timeout_id) {
+                        new_game_timeout_id = setTimeout(() => { resetGame(true, ball.speed); }, 2500);
+                    }
+                }
+            }
+        });
+
+        world.on('post-solve', (contact) => {
+            const dataA = contact.getFixtureA().getUserData() || {}, dataB = contact.getFixtureB().getUserData() || {};
+            const ballData = dataA.type === 'ball' ? dataA : (dataB.type === 'ball' ? dataB : null);
+            const wallData = dataA.type === 'wall' ? dataA : (dataB.type === 'wall' ? dataB : null);
+            if (ballData && wallData) {
+                playSound('bounce', 0.3);
+
+                if (wallData.side === 'left' || wallData.side === 'right') {
+                    consecutiveMiddleHits = 0; // Reset counter on side wall hit
+                }
+
+                const vel = ballBody.getLinearVelocity(), speed = vel.length(), minComponent = speed * 0.2;
+                let corrected = false;
+                if ((wallData.side === 'left' || wallData.side === 'right') && Math.abs(vel.x) < minComponent) {
+                    vel.x = (vel.x > 0 ? 1 : -1) * minComponent; corrected = true;
+                } else if (wallData.side === 'top' && Math.abs(vel.y) < minComponent) {
+                    vel.y = (vel.y > 0 ? 1 : -1) * minComponent; corrected = true;
+                }
+                if (corrected) { vel.normalize(); vel.mul(speed); ballBody.setLinearVelocity(vel); }
+            }
+        });
 
         if (!keepScore) { score = 0; global_start_time = Date.now(); showInitialAutomodeMessage = true; initialAutoSpeedRampActive = true; if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId); initialMessageTimeoutId = setTimeout(() => { showInitialAutomodeMessage = false; }, 15000); playSound('launch'); } else { showInitialAutomodeMessage = false; initialAutoSpeedRampActive = false; if (initialMessageTimeoutId) clearTimeout(initialMessageTimeoutId); }
 
@@ -195,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
         paddleMoveDirectionTouch = 0;
         mouseTargetX = null;
         mouseControlActive = false;
+        consecutiveMiddleHits = 0; // Ensure reset on new level/game
         running = true;
         manageAutoSpeedIncrease();
         if (!animationFrameId) gameLoop();
@@ -221,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleManualSpeedChange() { if (initialAutoSpeedRampActive) { initialAutoSpeedRampActive = false; manageAutoSpeedIncrease(); } }
 
     // --- GAMEPAD CONTROLS ---
-    const GAMEPAD_DEADZONE = 0.25; let gamepads = {}; window.addEventListener("gamepadconnected", (e) => gamepads[e.gamepad.index] = { controller: e.gamepad, prevButtonStates: e.gamepad.buttons.map(b => b.pressed) }); window.addEventListener("gamepaddisconnected", (e) => delete gamepads[e.gamepad.index]);
+    const GAMEPAD_DEADZONE = 0.25; let gamepads = {}; window.addEventListener("gamepadconnected", (e) => gamepads[e.gamepad.index] = { controller: e.gamepad, prevButtonStates: e.gamepad.buttons.map(b => b.pressed) }); window.addEventListener("gampaddisconnected", (e) => delete gamepads[e.gamepad.index]);
     function handleGamepadInput() { const latestGamepads = navigator.getGamepads(); if (!latestGamepads) return; for (const gp of latestGamepads) { if (!gp || !gamepads[gp.index]) continue; const prevStates = gamepads[gp.index].prevButtonStates; const isButtonPressed = (i) => gp.buttons[i] && gp.buttons[i].pressed && !prevStates[i]; if (isButtonPressed(0)) toggleAutoFollow(); if (isButtonPressed(1)) teleportBallToPaddle(); if (isButtonPressed(9)) resetGame(true, ball.speed); if (isButtonPressed(5)) { updateBallSpeed(Math.min(ball.speed + 2.0, MAX_BALL_SPEED)); handleManualSpeedChange(); } if (isButtonPressed(4)) { updateBallSpeed(Math.max(ball.speed - 2.0, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); } gamepads[gp.index].prevButtonStates = gp.buttons.map(b => b.pressed); } }
     
     // --- MAIN UPDATE AND GAME LOOP --- (MODIFIED)
