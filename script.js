@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const DEFAULT_BALL_SPEED = 7.0, MAX_BALL_SPEED = 50.0;
     const DEFAULT_PADDLE_SPEED = 9, PADDLE_SPEED_RATIO = DEFAULT_PADDLE_SPEED / DEFAULT_BALL_SPEED;
     
-    // NEW: Higher value = faster, more responsive "following" for mouse and auto-mode.
+    // Higher value = faster, more responsive "following" for mouse and auto-mode.
     const PADDLE_RESPONSIVENESS = 30; 
 
     // Game Objects
@@ -77,6 +77,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Countdown variables
     let countdownActive = false, countdownValue = 3, countdownIntervalId = null;
+
+    // Help Screen variables
+    let showHelpScreen = false;
+    let wasRunningBeforeHelp = false;
+    let helpLinkRect = null;
 
     // Touch Controls Visibility
     let touchControlsAreVisible = true, touchLeftEl, touchRightEl;
@@ -123,6 +128,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         manageAutoSpeedIncrease();
     }
+    
+    function toggleHelpScreen() {
+        if (countdownActive) return; // Don't allow help during countdown
+        showHelpScreen = !showHelpScreen;
+        if (showHelpScreen) {
+            wasRunningBeforeHelp = running;
+            running = false;
+        } else {
+            running = wasRunningBeforeHelp;
+            helpLinkRect = null; // Clear the rect when closing
+            canvas.style.cursor = 'default'; // Always reset cursor on close
+        }
+    }
 
     function teleportBallToPaddle() {
         if (!paddleBody || !ballBody) return;
@@ -151,6 +169,56 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawBricks() { for (const brick of bricks) { if (brick.status === 1) { ctx.beginPath(); ctx.rect(brick.x, brick.y, BRICK_WIDTH, BRICK_HEIGHT); ctx.fillStyle = COLOR_RED; ctx.fill(); ctx.closePath(); } } }
     function drawScoreAndInfo() { ctx.font = '18px Arial'; ctx.fillStyle = COLOR_WHITE; ctx.textAlign = 'left'; ctx.fillText(`Speed: ${ball.speed.toFixed(1)}`, 10, 20); ctx.textAlign = 'right'; ctx.fillText(`Score: ${score}`, SCREEN_WIDTH - 10, 20); ctx.textAlign = 'left'; const global_elapsed_time = (Date.now() - global_start_time) / 1000; ctx.fillText(`Playtime: ${global_elapsed_time.toFixed(1)}s`, 10, SCREEN_HEIGHT - 10); if (showInitialAutomodeMessage) { ctx.font = '20px Arial'; ctx.fillStyle = 'yellow'; ctx.textAlign = 'center'; ctx.fillText("Automode enabled. Click screen to take control.", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 100); } }
     function drawCountdown() { ctx.font = "120px Arial"; ctx.fillStyle = "rgba(255, 255, 0, 0.9)"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(countdownValue, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50); ctx.font = "24px Arial"; ctx.fillStyle = "orange"; ctx.fillText(`Final Score: ${score}`, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20); }
+    function drawHelpScreen() {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+        ctx.fillStyle = "#e74c3c"; // Title color
+        ctx.font = "32px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("Help & Info", SCREEN_WIDTH / 2, 80);
+
+        ctx.fillStyle = "#ecf0f1"; // Text color
+        ctx.font = "18px Arial";
+        ctx.textAlign = "left";
+        let yPos = 140;
+        const line_height = 28;
+
+        const helpLines = [
+            "- Goal: Break all bricks to advance. Score carries over.",
+            "- Manual Control: Click canvas or press 'A' to disable Auto-Follow.",
+            "- Ball Teleport: Press 'Space' to bring the ball to the paddle.",
+            "- New Game: Press 'N' to start a new level, keeping score & speed.",
+            "- Lose Condition: If the ball falls, a 3s countdown begins before reset.",
+            "- Anti-Lock: Hitting the paddle center repeatedly will nudge the ball.",
+        ];
+        
+        for (const line of helpLines) {
+            ctx.fillText(line, 80, yPos);
+            yPos += line_height;
+        }
+
+        // Draw and measure the clickable link
+        yPos += line_height; // Add extra space
+        const linkURL = "https://github.com/pemmyz/js_breakout_redux";
+        const linkLabel = "Link to repo: ";
+        ctx.fillStyle = "#ecf0f1";
+        ctx.fillText(linkLabel, 80, yPos);
+        
+        const labelMetrics = ctx.measureText(linkLabel);
+        const linkX = 80 + labelMetrics.width;
+
+        ctx.fillStyle = "#3498db"; // A typical link blue color
+        ctx.fillText(linkURL, linkX, yPos);
+
+        const urlMetrics = ctx.measureText(linkURL);
+        helpLinkRect = { x: linkX, y: yPos - 18, width: urlMetrics.width, height: 22 };
+
+        ctx.font = "24px Arial";
+        ctx.fillStyle = "#f1c40f"; // Yellow prompt
+        ctx.textAlign = "center";
+        ctx.fillText("Press 'H' or the Help button to close", SCREEN_WIDTH / 2, SCREEN_HEIGHT - 60);
+    }
 
     // --- GAME LOGIC ---
     function resetGame(keepScore = false, retainSpeed = null) {
@@ -190,7 +258,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const dataA = (contact.getFixtureA().getUserData() || {}),
                 dataB = (contact.getFixtureB().getUserData() || {});
             if ((dataA.type === 'ball' && dataB.type === 'paddle') || (dataA.type === 'paddle' && dataB.type === 'ball')) {
-                playSound('flipper', 0.4); // Volume changed to half
+                playSound('flipper', 0.4);
                 contact.setEnabled(false);
     
                 const ballPos = ballBody.getPosition();
@@ -199,10 +267,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
                 let relativeIntersectX = (ballPos.x - paddlePos.x) / (pxToM(paddle.width) / 2);
                 
-                const middleThreshold = 0.1; // 10% of paddle half-width is "middle"
+                const middleThreshold = 0.1;
                 if (currentVel.y > 0 && Math.abs(relativeIntersectX) < middleThreshold) {
                     consecutiveMiddleHits++;
-                } else if (currentVel.y > 0) { // Only reset if it's a downward hit, not a graze
+                } else if (currentVel.y > 0) {
                     consecutiveMiddleHits = 0;
                 }
     
@@ -212,7 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const newBallPos = Vec2(ballPos.x + offsetM, ballPos.y);
                     ballBody.setPosition(newBallPos);
                     relativeIntersectX = (newBallPos.x - paddlePos.x) / (pxToM(paddle.width) / 2);
-                    consecutiveMiddleHits = 0; // Reset after triggering
+                    consecutiveMiddleHits = 0;
                 }
     
                 relativeIntersectX = Math.max(-1, Math.min(1, relativeIntersectX));
@@ -230,7 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 brickData.renderInfo.status = 0;
                 bodiesToDestroy.push(brickData.renderInfo.body);
                 score += 10;
-                consecutiveMiddleHits = 0; // Reset counter on brick hit
+                consecutiveMiddleHits = 0;
                 if (bricks.every(b => b.status === 0)) {
                     if (!new_game_timeout_id) {
                         new_game_timeout_id = setTimeout(() => { resetGame(true, ball.speed); }, 2500);
@@ -247,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 playSound('bounce', 0.3);
 
                 if (wallData.side === 'left' || wallData.side === 'right') {
-                    consecutiveMiddleHits = 0; // Reset counter on side wall hit
+                    consecutiveMiddleHits = 0;
                 }
 
                 const vel = ballBody.getLinearVelocity(), speed = vel.length(), minComponent = speed * 0.2;
@@ -267,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
         paddleMoveDirectionTouch = 0;
         mouseTargetX = null;
         mouseControlActive = false;
-        consecutiveMiddleHits = 0; // Ensure reset on new level/game
+        consecutiveMiddleHits = 0;
         running = true;
         manageAutoSpeedIncrease();
         if (!animationFrameId) gameLoop();
@@ -275,29 +343,28 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- KEYBOARD & MOUSE CONTROLS ---
     let keysPressed = {};
-    document.addEventListener('keydown', (e) => { unlockAudio(); const key = e.key.toLowerCase(); keysPressed[key] = true; if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault(); if (key === 'a') toggleAutoFollow(); if (key === ' ') teleportBallToPaddle(); if (key === 'n') resetGame(true, ball.speed); if (key === 't') toggleTouchControls(); });
+    document.addEventListener('keydown', (e) => {
+        unlockAudio();
+        const key = e.key.toLowerCase();
+        keysPressed[key] = true;
+        if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault();
+        if (key === 'a') toggleAutoFollow();
+        if (key === ' ') teleportBallToPaddle();
+        if (key === 'n') resetGame(true, ball.speed);
+        if (key === 't') toggleTouchControls();
+        if (key === 'h') {
+            toggleHelpScreen();
+        }
+    });
     document.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
     
-    canvas.addEventListener('mousemove', (e) => {
-        if (mouseControlActive && !autoFollowMode) {
-            const rect = canvas.getBoundingClientRect();
-            mouseTargetX = pxToM(e.clientX - rect.left);
-        }
-    });
-
-    canvas.addEventListener('mouseleave', () => {
-        if (mouseControlActive) {
-            mouseTargetX = null;
-        }
-    });
-
     function handleManualSpeedChange() { if (initialAutoSpeedRampActive) { initialAutoSpeedRampActive = false; manageAutoSpeedIncrease(); } }
 
     // --- GAMEPAD CONTROLS ---
     const GAMEPAD_DEADZONE = 0.25; let gamepads = {}; window.addEventListener("gamepadconnected", (e) => gamepads[e.gamepad.index] = { controller: e.gamepad, prevButtonStates: e.gamepad.buttons.map(b => b.pressed) }); window.addEventListener("gampaddisconnected", (e) => delete gamepads[e.gamepad.index]);
     function handleGamepadInput() { const latestGamepads = navigator.getGamepads(); if (!latestGamepads) return; for (const gp of latestGamepads) { if (!gp || !gamepads[gp.index]) continue; const prevStates = gamepads[gp.index].prevButtonStates; const isButtonPressed = (i) => gp.buttons[i] && gp.buttons[i].pressed && !prevStates[i]; if (isButtonPressed(0)) toggleAutoFollow(); if (isButtonPressed(1)) teleportBallToPaddle(); if (isButtonPressed(9)) resetGame(true, ball.speed); if (isButtonPressed(5)) { updateBallSpeed(Math.min(ball.speed + 2.0, MAX_BALL_SPEED)); handleManualSpeedChange(); } if (isButtonPressed(4)) { updateBallSpeed(Math.max(ball.speed - 2.0, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); } gamepads[gp.index].prevButtonStates = gp.buttons.map(b => b.pressed); } }
     
-    // --- MAIN UPDATE AND GAME LOOP --- (MODIFIED)
+    // --- MAIN UPDATE AND GAME LOOP ---
     function update() {
         if (!world || !ballBody || !paddleBody) return;
         handleGamepadInput();
@@ -305,12 +372,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (!autoFollowMode) {
             let desiredVelX = 0;
-            // MODIFIED: Increased multiplier for faster digital movement (keyboard/gamepad/touch).
             const paddleVel = paddle.speed * 3.0; 
 
             if (mouseTargetX !== null) { 
                 const currentPos = paddleBody.getPosition();
-                // MODIFIED: Use the new responsiveness factor for mouse control to make it "snap" to the cursor.
                 desiredVelX = (mouseTargetX - currentPos.x) * PADDLE_RESPONSIVENESS; 
             } 
             else {
@@ -326,7 +391,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else { 
             const ballPos = ballBody.getPosition();
             const paddlePos = paddleBody.getPosition();
-            // MODIFIED: Use the new responsiveness factor for auto-follow mode.
             const desiredVelX = (ballPos.x - paddlePos.x) * PADDLE_RESPONSIVENESS;
             paddleBody.setLinearVelocity(Vec2(desiredVelX, 0)); 
         }
@@ -341,29 +405,86 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function draw() { ctx.fillStyle = COLOR_BLACK; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); drawPaddle(); drawBricks(); drawBall(); drawScoreAndInfo(); if (countdownActive) drawCountdown(); }
+    function draw() {
+        ctx.fillStyle = COLOR_BLACK;
+        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        drawPaddle();
+        drawBricks();
+        drawBall();
+        drawScoreAndInfo();
+        if (countdownActive) drawCountdown();
+        if (showHelpScreen) {
+            drawHelpScreen();
+        }
+    }
     function gameLoop() { if (running) update(); draw(); animationFrameId = requestAnimationFrame(gameLoop); }
     
     // --- UI/BUTTON/TOUCH SETUP ---
     function manageAutoSpeedIncrease() { if (autoFollowMode && initialAutoSpeedRampActive && running) { if (!autoSpeedIncreaseIntervalId) { autoSpeedIncreaseIntervalId = setInterval(() => { if (autoFollowMode && initialAutoSpeedRampActive && running && ball.speed < MAX_BALL_SPEED) { updateBallSpeed(Math.min(ball.speed + 5, MAX_BALL_SPEED)); if (ball.speed >= MAX_BALL_SPEED) initialAutoSpeedRampActive = false; } else if(autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }, 2500); } } else if (autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }
-    function setupButtonControls() { document.getElementById('btnIncreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.min(ball.speed + 0.5, MAX_BALL_SPEED)); handleManualSpeedChange(); }); document.getElementById('btnDecreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.max(ball.speed - 0.5, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); }); document.getElementById('btnToggleAutoFollow').addEventListener('click', toggleAutoFollow); document.getElementById('btnTeleportBall').addEventListener('click', teleportBallToPaddle); document.getElementById('btnNewGame').addEventListener('click', () => resetGame(true, ball.speed)); document.getElementById('btnToggleTouch').addEventListener('click', toggleTouchControls); document.getElementById('btnMoveLeft').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(-paddle.speed, 0)); }); document.getElementById('btnMoveRight').addEventListener('click', () => { if (!autoFollowMode && paddleBody) paddleBody.setLinearVelocity(Vec2(paddle.speed, 0)); }); muteButton.addEventListener('click', () => { unlockAudio(); isMuted = !isMuted; muteButton.textContent = isMuted ? 'Unmute' : 'Mute'; }); }
+    function setupButtonControls() { document.getElementById('btnIncreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.min(ball.speed + 0.5, MAX_BALL_SPEED)); handleManualSpeedChange(); }); document.getElementById('btnDecreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.max(ball.speed - 0.5, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); }); document.getElementById('btnToggleAutoFollow').addEventListener('click', toggleAutoFollow); document.getElementById('btnTeleportBall').addEventListener('click', teleportBallToPaddle); document.getElementById('btnNewGame').addEventListener('click', () => resetGame(true, ball.speed)); document.getElementById('btnToggleTouch').addEventListener('click', toggleTouchControls); document.getElementById('btnToggleHelp').addEventListener('click', toggleHelpScreen); muteButton.addEventListener('click', () => { unlockAudio(); isMuted = !isMuted; muteButton.textContent = isMuted ? 'Unmute' : 'Mute'; }); }
     function toggleTouchControls() { touchControlsAreVisible = !touchControlsAreVisible; if (touchLeftEl && touchRightEl) { touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible); touchRightEl.classList.toggle('hidden', !touchControlsAreVisible); } }
     function setupTouchControls() { touchLeftEl = document.getElementById('touchControlLeft'); touchRightEl = document.getElementById('touchControlRight'); touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible); touchRightEl.classList.toggle('hidden', !touchControlsAreVisible); const handleTouchStart = (direction) => { if (autoFollowMode) toggleAutoFollow(); paddleMoveDirectionTouch = direction; }; const handleTouchEnd = () => { paddleMoveDirectionTouch = 0; }; ['mousedown', 'touchstart'].forEach(evt => { touchLeftEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(-1); }, { passive: false }); touchRightEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(1); }, { passive: false }); }); ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(evt => { document.addEventListener(evt, () => { if (paddleMoveDirectionTouch !== 0) handleTouchEnd(); }); }); }
 
     // --- INITIALIZE AND START GAME ---
     setupButtonControls();
     setupTouchControls();
-
-    const handleCanvasClick = (e) => {
-        unlockAudio(); // Unlock audio on interaction
+    
+    // Main canvas listeners
+    const handleCanvasInteractionStart = (e) => {
+        unlockAudio(); // Unlock audio on any interaction
         if (autoFollowMode) {
             e.preventDefault();
             toggleAutoFollow();
         }
         mouseControlActive = true;
     };
-    canvas.addEventListener('mousedown', handleCanvasClick);
-    canvas.addEventListener('touchstart', handleCanvasClick, { passive: false });
+    canvas.addEventListener('mousedown', handleCanvasInteractionStart);
+    canvas.addEventListener('touchstart', handleCanvasInteractionStart, { passive: false });
     
+    canvas.addEventListener('mousemove', (e) => {
+        if (!mouseControlActive && !autoFollowMode) {
+            mouseControlActive = true;
+        }
+        if (mouseControlActive && !autoFollowMode) {
+            const rect = canvas.getBoundingClientRect();
+            mouseTargetX = pxToM(e.clientX - rect.left);
+        }
+        // Handle cursor change for the clickable link in the help menu
+        if (showHelpScreen && helpLinkRect) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            if (mouseX >= helpLinkRect.x && mouseX <= helpLinkRect.x + helpLinkRect.width &&
+                mouseY >= helpLinkRect.y && mouseY <= helpLinkRect.y + helpLinkRect.height) {
+                canvas.style.cursor = 'pointer';
+            } else {
+                canvas.style.cursor = 'default';
+            }
+        } else {
+             // Ensure cursor is default when not hovering over a link
+            canvas.style.cursor = 'default';
+        }
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        if (mouseControlActive) {
+            mouseTargetX = null;
+        }
+    });
+    
+    canvas.addEventListener('click', (e) => {
+        // Handle clicking the link in the help menu
+        if (showHelpScreen && helpLinkRect) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (mouseX >= helpLinkRect.x && mouseX <= helpLinkRect.x + helpLinkRect.width &&
+                mouseY >= helpLinkRect.y && mouseY <= helpLinkRect.y + helpLinkRect.height) {
+                window.open('https://github.com/pemmyz/js_breakout_redux', '_blank');
+            }
+        }
+    });
+
     resetGame();
 });
