@@ -2,63 +2,74 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>JavaScript Brick Breaker Game (with Planck.js Physics)</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>JavaScript Brick Breaker Game (with Planck.js Physics)</h1>
-
-    <div id="main-content">
-        <div id="gameArea">
-            <canvas id="gameCanvas"></canvas>
-            <div id="touchControlLeft" class="touch-control"><span>◀</span></div>
-            <div id="touchControlRight" class="touch-control"><span>▶</span></div>
+    <!-- Top bar replacing side-by-side layout for a tighter interface -->
+    <div id="top-bar">
+        <div class="top-buttons">
+            <button id="mobile-btn">📱 Fullscreen</button>
+            <button id="btnOptions">⚙️ Options / Controls</button>
         </div>
+        <h1>JS Brick Breaker</h1>
+    </div>
 
-        <div class="controls-info">
-            <h2>Controls:</h2>
+    <!-- Wrapping everything in game-container for scaling -->
+    <div id="game-container">
+        <div id="screen"> <!-- Represents fixed size resolution -->
+            <div id="gameArea">
+                <canvas id="gameCanvas"></canvas>
+            </div>
+            
+            <!-- NEW MOBILE TOUCH CONTROLS OVERLAY -->
+            <div id="mobile-controls">
+                <div id="mobile-dpad">
+                    <button id="mobile-left" class="mobile-control-btn">◀</button>
+                    <button id="mobile-right" class="mobile-control-btn">▶</button>
+                </div>
+                <div id="mobile-action">
+                    <button id="mobile-up" class="mobile-control-btn">A</button> <!-- Action / Auto-Follow -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Options Menu Modal -->
+    <div id="optionsModal" class="modal hidden">
+        <div class="modal-content controls-info">
+            <span id="closeOptions" class="close-btn">&times;</span>
+            <h2>Controls & Options</h2>
             <div class="gamepad-info">
                 <p><strong>Gamepad Supported:</strong> Use Left Stick or D-Pad to move. 'A' toggles auto-follow, 'B' teleports, 'Start' for new game, LB/RB to change speed.</p>
             </div>
             <div class="button-controls-container">
-                <!-- Multi-action: Paddle -->
                 <div class="button-row">
                     <span class="control-description"><strong>Left/Right Arrows (or Tap Screen Sides):</strong> Move Paddle</span>
-                    <div class="action-buttons">
-                        <button id="btnMoveLeft" title="Move Paddle Left (ArrowLeft)">Move Left</button>
-                        <button id="btnMoveRight" title="Move Paddle Right (ArrowRight)">Move Right</button>
-                    </div>
                 </div>
-                <!-- Multi-action: Speed -->
                 <div class="button-row">
                     <span class="control-description"><strong>Up/Down Arrows:</strong> Change Ball Speed</span>
                      <div class="action-buttons">
                         <button id="btnIncreaseSpeed" title="Increase Ball Speed (ArrowUp)">Increase Speed</button>
-                        <button id="btnDecreaseSpeed" title="Increase Ball Speed (ArrowDown)">Decrease Speed</button>
+                        <button id="btnDecreaseSpeed" title="Decrease Ball Speed (ArrowDown)">Decrease Speed</button>
                     </div>
                 </div>
-                <!-- Single-action: Toggle Auto-Follow -->
                 <div class="button-row">
                      <button id="btnToggleAutoFollow" title="Toggle Auto-Follow Paddle (A)"><strong>A:</strong> Toggle Auto-Follow Paddle</button>
                 </div>
-                <!-- Single-action: Teleport -->
                 <div class="button-row">
                     <button id="btnTeleportBall" title="Teleport Ball to Paddle (Space)"><strong>Space:</strong> Teleport Ball to Paddle</button>
                 </div>
-                <!-- Single-action: New Game -->
                 <div class="button-row">
                      <button id="btnNewGame" title="New Game (N) - Retains Speed, Cumulates Score"><strong>N:</strong> New Game (Keep Score & Speed)</button>
                 </div>
-                <!-- Single-action: Toggle Touch Controls -->
                 <div class="button-row">
-                     <button id="btnToggleTouch" title="Toggle Touchscreen Controls (T)"><strong>T:</strong> Toggle Touch Controls</button>
+                     <button id="btnToggleTouch" title="Toggle Legacy Touch Controls (T)"><strong>T:</strong> Toggle Legacy Touch Mode</button>
                 </div>
-                <!-- Single-action: Toggle Help Screen -->
                 <div class="button-row">
                     <button id="btnToggleHelp" title="Toggle Help Screen (H)"><strong>H:</strong> Toggle Help Screen</button>
                 </div>
-                <!-- Mute Button -->
                 <div class="button-row">
                     <button id="mute-button">Mute</button>
                 </div>
@@ -69,8 +80,6 @@
 
     <!-- Include the Planck.js physics library -->
     <script src="planck.min.js"></script>
-    
-    <!-- Your game script -->
     <script src="script.js"></script>
 </body>
 </html>

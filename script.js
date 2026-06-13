@@ -33,10 +33,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const SCREEN_HEIGHT = 600;
     canvas.width = SCREEN_WIDTH;
     canvas.height = SCREEN_HEIGHT;
-    if (gameArea) {
-        gameArea.style.width = SCREEN_WIDTH + 'px';
-        gameArea.style.height = SCREEN_HEIGHT + 'px';
-    }
 
     // Physics world scale
     const SCALE = 30;
@@ -83,9 +79,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let wasRunningBeforeHelp = false;
     let helpLinkRect = null;
 
-    // Touch Controls Visibility
-    let touchControlsAreVisible = true, touchLeftEl, touchRightEl;
-
     // Time variables
     let global_start_time = Date.now(), new_game_timeout_id = null;
     let autoSpeedIncreaseIntervalId = null, initialAutoSpeedRampActive = false;
@@ -93,7 +86,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // DOM Elements
     const autoFollowStatusElement = document.getElementById('autoFollowStatus');
-    const muteButton = document.getElementById('mute-button'); // Get mute button
+    const muteButton = document.getElementById('mute-button');
+
+    // Display Scaling
+    let gameScale = 1;
 
     // --- HELPER FUNCTIONS ---
     function updateBallSpeed(newSpeed) {
@@ -274,7 +270,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     consecutiveMiddleHits = 0;
                 }
     
-                if (consecutiveMiddleHits >= 5) {
+                // Only use the teleport hack for manual play. Auto-mode handles this by moving the paddle.
+                if (consecutiveMiddleHits >= 5 && !autoFollowMode) {
                     const randomOffsetPx = (Math.random() * 10 + 10) * (Math.random() < 0.5 ? 1 : -1);
                     const offsetM = pxToM(randomOffsetPx);
                     const newBallPos = Vec2(ballPos.x + offsetM, ballPos.y);
@@ -391,7 +388,14 @@ document.addEventListener('DOMContentLoaded', () => {
         } else { 
             const ballPos = ballBody.getPosition();
             const paddlePos = paddleBody.getPosition();
-            const desiredVelX = (ballPos.x - paddlePos.x) * PADDLE_RESPONSIVENESS;
+            
+            // If stuck in a vertical loop (5+ middle hits), target an offset to move the paddle right
+            let targetX = ballPos.x;
+            if (consecutiveMiddleHits >= 5) {
+                targetX = ballPos.x + pxToM(40); // Offsets the target so the paddle moves Right
+            }
+            
+            const desiredVelX = (targetX - paddlePos.x) * PADDLE_RESPONSIVENESS;
             paddleBody.setLinearVelocity(Vec2(desiredVelX, 0)); 
         }
 
@@ -422,8 +426,45 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- UI/BUTTON/TOUCH SETUP ---
     function manageAutoSpeedIncrease() { if (autoFollowMode && initialAutoSpeedRampActive && running) { if (!autoSpeedIncreaseIntervalId) { autoSpeedIncreaseIntervalId = setInterval(() => { if (autoFollowMode && initialAutoSpeedRampActive && running && ball.speed < MAX_BALL_SPEED) { updateBallSpeed(Math.min(ball.speed + 5, MAX_BALL_SPEED)); if (ball.speed >= MAX_BALL_SPEED) initialAutoSpeedRampActive = false; } else if(autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }, 2500); } } else if (autoSpeedIncreaseIntervalId) { clearInterval(autoSpeedIncreaseIntervalId); autoSpeedIncreaseIntervalId = null; } }
     function setupButtonControls() { document.getElementById('btnIncreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.min(ball.speed + 0.5, MAX_BALL_SPEED)); handleManualSpeedChange(); }); document.getElementById('btnDecreaseSpeed').addEventListener('click', () => { updateBallSpeed(Math.max(ball.speed - 0.5, DEFAULT_BALL_SPEED * 0.5)); handleManualSpeedChange(); }); document.getElementById('btnToggleAutoFollow').addEventListener('click', toggleAutoFollow); document.getElementById('btnTeleportBall').addEventListener('click', teleportBallToPaddle); document.getElementById('btnNewGame').addEventListener('click', () => resetGame(true, ball.speed)); document.getElementById('btnToggleTouch').addEventListener('click', toggleTouchControls); document.getElementById('btnToggleHelp').addEventListener('click', toggleHelpScreen); muteButton.addEventListener('click', () => { unlockAudio(); isMuted = !isMuted; muteButton.textContent = isMuted ? 'Unmute' : 'Mute'; }); }
-    function toggleTouchControls() { touchControlsAreVisible = !touchControlsAreVisible; if (touchLeftEl && touchRightEl) { touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible); touchRightEl.classList.toggle('hidden', !touchControlsAreVisible); } }
-    function setupTouchControls() { touchLeftEl = document.getElementById('touchControlLeft'); touchRightEl = document.getElementById('touchControlRight'); touchLeftEl.classList.toggle('hidden', !touchControlsAreVisible); touchRightEl.classList.toggle('hidden', !touchControlsAreVisible); const handleTouchStart = (direction) => { if (autoFollowMode) toggleAutoFollow(); paddleMoveDirectionTouch = direction; }; const handleTouchEnd = () => { paddleMoveDirectionTouch = 0; }; ['mousedown', 'touchstart'].forEach(evt => { touchLeftEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(-1); }, { passive: false }); touchRightEl.addEventListener(evt, (e) => { e.preventDefault(); handleTouchStart(1); }, { passive: false }); }); ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(evt => { document.addEventListener(evt, () => { if (paddleMoveDirectionTouch !== 0) handleTouchEnd(); }); }); }
+    
+    function toggleTouchControls() {
+        const mobileControls = document.getElementById('mobile-controls');
+        if (mobileControls) {
+            mobileControls.style.display = mobileControls.style.display === 'flex' ? 'none' : 'flex';
+        }
+    }
+
+    function setupTouchControls() {
+        const mobileLeftBtn = document.getElementById('mobile-left');
+        const mobileRightBtn = document.getElementById('mobile-right');
+        const mobileUpBtn = document.getElementById('mobile-up');
+
+        const addControlListener = (element, direction, isAction) => {
+            if (!element) return;
+            const pressKey = (e) => {
+                if (e.cancelable) e.preventDefault();
+                element.classList.add('active');
+                if (isAction) {
+                    toggleAutoFollow();
+                } else {
+                    if (autoFollowMode) toggleAutoFollow();
+                    paddleMoveDirectionTouch = direction;
+                }
+            };
+            const releaseKey = (e) => {
+                if (e.cancelable) e.preventDefault();
+                element.classList.remove('active');
+                if (!isAction) paddleMoveDirectionTouch = 0;
+            };
+
+            ['touchstart', 'mousedown'].forEach(evt => element.addEventListener(evt, pressKey, { passive: false }));
+            ['touchend', 'touchcancel', 'mouseup', 'mouseleave'].forEach(evt => element.addEventListener(evt, releaseKey, { passive: false }));
+        };
+
+        addControlListener(mobileLeftBtn, -1, false);
+        addControlListener(mobileRightBtn, 1, false);
+        addControlListener(mobileUpBtn, 0, true);
+    }
 
     // --- INITIALIZE AND START GAME ---
     setupButtonControls();
@@ -447,13 +488,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (mouseControlActive && !autoFollowMode) {
             const rect = canvas.getBoundingClientRect();
-            mouseTargetX = pxToM(e.clientX - rect.left);
+            // Divide coordinate by gameScale to fix coordinates in Fullscreen
+            mouseTargetX = pxToM((e.clientX - rect.left) / gameScale);
         }
         // Handle cursor change for the clickable link in the help menu
         if (showHelpScreen && helpLinkRect) {
             const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+            const mouseX = (e.clientX - rect.left) / gameScale;
+            const mouseY = (e.clientY - rect.top) / gameScale;
             if (mouseX >= helpLinkRect.x && mouseX <= helpLinkRect.x + helpLinkRect.width &&
                 mouseY >= helpLinkRect.y && mouseY <= helpLinkRect.y + helpLinkRect.height) {
                 canvas.style.cursor = 'pointer';
@@ -476,8 +518,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Handle clicking the link in the help menu
         if (showHelpScreen && helpLinkRect) {
             const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+            const mouseX = (e.clientX - rect.left) / gameScale;
+            const mouseY = (e.clientY - rect.top) / gameScale;
 
             if (mouseX >= helpLinkRect.x && mouseX <= helpLinkRect.x + helpLinkRect.width &&
                 mouseY >= helpLinkRect.y && mouseY <= helpLinkRect.y + helpLinkRect.height) {
@@ -487,4 +529,57 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     resetGame();
+
+    // --- MODAL MENU & FULLSCREEN SCALING LOGIC ---
+    const btnOptions = document.getElementById('btnOptions');
+    const optionsModal = document.getElementById('optionsModal');
+    const closeOptions = document.getElementById('closeOptions');
+    const mobileToggleBtn = document.getElementById('mobile-btn');
+    const screenElement = document.getElementById('screen');
+
+    // Options Modal Events
+    if (btnOptions) {
+        btnOptions.addEventListener('click', () => { 
+            optionsModal.classList.remove('hidden'); 
+            unlockAudio(); 
+        });
+    }
+    if (closeOptions) closeOptions.addEventListener('click', () => optionsModal.classList.add('hidden'));
+    window.addEventListener('click', (e) => { if (e.target === optionsModal) optionsModal.classList.add('hidden'); });
+
+    // Scaling Logic
+    function scaleGame() {
+        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+        
+        if (isFullscreen) {
+            // Keep aspect ratio dynamically inside the current window size
+            gameScale = Math.min(window.innerWidth / SCREEN_WIDTH, window.innerHeight / SCREEN_HEIGHT);
+            screenElement.style.transform = `scale(${gameScale})`;
+            document.body.classList.add('mobile-mode'); // Activates CSS lock & touch UI
+        } else {
+            gameScale = 1;
+            screenElement.style.transform = 'none'; 
+            document.body.classList.remove('mobile-mode');
+        }
+    }
+
+    function goFull() {
+        const el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }
+
+    // Attach Scale Listeners
+    window.addEventListener("resize", scaleGame);
+    window.addEventListener("fullscreenchange", scaleGame);
+    window.addEventListener("webkitfullscreenchange", scaleGame);
+    scaleGame(); // Check immediately on load
+
+    if (mobileToggleBtn) {
+        mobileToggleBtn.addEventListener('click', () => { 
+            unlockAudio(); 
+            goFull(); 
+        });
+    }
+
 });
