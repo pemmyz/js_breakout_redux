@@ -7,6 +7,8 @@ Fast, responsive paddle control with **auto-follow**, **gamepad support**, **tou
 
 > ⚙️ Tech: Vanilla JS, Canvas 2D, Planck.js (Box2D), Web Audio API. No build step required.
 
+## Play it now: https://pemmyz.github.io/js_breakout_redux/
+
 ---
 
 ## ✨ Features
